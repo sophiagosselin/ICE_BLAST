@@ -6,6 +6,18 @@ use Scalar::Util;
 use File::Copy;
 no warnings 'experimental';
 
+#DEV NOTES:
+#add a DS output option such that you get two outputs:
+#1. that is the domain of interest only
+#2. that contains the whole database sequence
+#3. check the psi-blast routine for redundant dup checking.
+#4. add an option for using a single database and pblast only
+#5. add input checking sub
+#6. move directories below help
+#7. add verboxisty back in
+#8. give people a default command example (with defaults, and with modifications)
+#9. add a description to each subroutine
+
 #directories
 unless(-d "intermediates"){
 	mkdir("intermediates");
@@ -22,7 +34,7 @@ my $threads = 2;
 my $eval = 1e-20;
 my $iters = 4;
 my $clusterid = 0.7;
-my ($verbosity,$help,$loop,$domainspecific,$domain_length,$upperbound,$lowerbound,$iteration) = (0) x 7;
+my ($verbosity,$help,$loop,$domainspecific,$domain_length,$upperbound,$lowerbound,$iteration) = (0) x 8;
 my($infasta,$outdatabase,$psidatabase,@placeholder);
 
 #getoptions
@@ -42,13 +54,28 @@ The following inputs are optional. Defaults shown.\n
   [e]: Evalue cutoff for inclusion. D: 1e-20\n
 	[id]: Percent ID for uclust clustering. D: 0.7\n
 	[v]: Verbosity toggle. Pass 1 to activate. D: 0\n
-	[ds]: Domain specific toggle. You will only use the matched region of a subject sequence for future searches. D:0\n\n";
+	[ds]: Domain specific toggle. You will only use the matched region of a subject sequence for future searches. D:0\n\n
+
+	If your run is interupted, leave the directories and files as is, and rerun your original command.\n\n";
 }
 else{}
 
 #check_for_pre_run_seqs
 if(-d "to_run"){
-	RECOVER();
+	my($backup_ref,$torun_ref)=RECOVER();
+	@placeholder = @{$backup_ref};
+	my @toblast = @{$torun_ref};
+	open(OUT, "+> infasta.fasta");
+	foreach my $file (@toblast){
+		open(IN, "< $file");
+		while(<IN>){
+			chomp;
+			print OUT "$_\n";
+		}
+		close IN;
+	}
+	close OUT;
+	$infasta = "infasta.fasta";
 }
 else{
 	mkdir("to_run");
@@ -59,7 +86,7 @@ MAIN();
 
 sub MAIN {
 	if($domainspecific == 1){
-		$domain_length = AVERAGE_QUERY_LENGTH($infasta)
+		$domain_length = AVERAGE_QUERY_LENGTH($infasta);
 		$upperbound = $domain_length*1.20;
 		$lowerbound = $domain_length*.80;
 	}
@@ -70,13 +97,24 @@ sub MAIN {
 sub RECOVER{
 	#subroutine that recovers a previous run based on the condition of
 	#the home and to_run directories.
-	my @backup_seqs = glob "to_run/*.fasta";
-
+	my @to_run = glob "to_run/*.fasta";
+	my @backup;
+	open(BACKUP, "< backup.log");
+	while(<BACKUP>){
+		chomp;
+		push(@backup,$_);
+	}
+	close BACKUP;
+	return(\@backup,\@to_run);
 }
 
 sub BACKUP{
 	#subroutine that prints to a file, and keeps track of which sequences
 	#have been searched with, such that recovering a run is easier
+	my $searcedseq = shift;
+	open(BACKUP, ">> backup.log");
+	print BACKUP "$searcedseq\n";
+	close BACKUP;
 }
 
 sub CORELOOP{
@@ -86,20 +124,21 @@ sub CORELOOP{
   my(@split_query) = SPLITFASTA($infile);
 	push(@seqs_to_search,@split_query);
 	my $matches = PSIBLAST(@split_query);
-	$clustered = UCLUST($firstmatch);
+	my $clustered = UCLUST($matches);
   my(@new_query_asc) = RE_SEED($clustered,@seqs_to_search);
 	if(!@new_query_asc){
 		return();
 	}
 	else{
 		my($new_infasta) = EXTRACTFASTA($matches,@new_query_asc);
+		$iteration++;
 		CORELOOP($new_infasta,@seqs_to_search);
 	}
 	return();
 }
 
 sub OUTPUT{
-	#prints out all unique sequences found during the search 
+	#prints out all unique sequences found during the search
 	my %all_sequence_acs;
   my @allmatches = glob "archive/*";
   open(FINAL, "+> output/all_matches.fasta");
@@ -134,16 +173,18 @@ sub OUTPUT{
 
 sub AVERAGE_QUERY_LENGTH{
 	my $fastafile = shift;
-	my $sequencel,@lengths;
+	my @lengths;
+	my $sequencel = 0;
 	open(IN, "< $fastafile");
 	while(<IN>){
 		chomp;
 		if($_=~/\>/){
+			next if($sequencel == 0);
 			push(@lengths,$sequencel);
 			$sequencel = 0;
 		}
 		else{
-			$sequencel += length($_;)
+			$sequencel += length($_);
 		}
 	}
 	push(@lengths,$sequencel);
@@ -160,7 +201,7 @@ sub STANDARDIZE {
 	#removes most unique characters from annotation lines
 	#makes later searches and moving of files much easier.
 	my $fastafile = shift;
-	open(IN, "< $fastafile");a
+	open(IN, "< $fastafile");
 	open(OUT, "+> temp.fasta");
 	while(<IN>){
 		if($_=~/\>/){
@@ -203,8 +244,8 @@ sub SPLITFASTA{
 sub PSIBLAST{
 	#THE OLD DESCRIPTION WAS NO LONGER ACCURATE LOL
 	my @query_files = @_;
-	my($subjectL,%matches);
-	open(BESTHITS, "+> besthits.txt");
+	my($subjectL,%matches,$strand);
+	open(BESTHITS, ">> besthits.txt");
 	foreach my $infasta (@query_files){
 	  system("psiblast -db $psidatabase -out temp.txt -query $infasta -out_pssm $infasta.pssm -inclusion_ethresh $eval -outfmt \"6 sseqid sstart send\" -num_iterations $iters -num_threads $threads -save_pssm_after_last_round -max_target_seqs 50000");
 		system("psiblast -db $outdatabase -in_pssm $infasta.pssm -out $infasta.blast6 -inclusion_ethresh $eval -evalue $eval -outfmt \"6 sseqid sstart send\" -num_threads $threads");
@@ -239,11 +280,12 @@ sub PSIBLAST{
 			}
   	}
 		close PSI;
-		system("mv $infasta.$extension $infasta.pssm $infasta intermediates");
+		system("mv $infasta.blast6 $infasta.pssm $infasta intermediates");
+		BACKUP($infasta);
 	}
 	close BESTHITS;
   system("blastdbcmd -db $outdatabase -entry_batch besthits.txt -outfmt \"%f\" > extracted_matches.$iteration");
-	RENAMEFASTA("extracted_matches.$iteration");
+	STANDARDIZE("extracted_matches.$iteration");
 	if($domainspecific == 1){
 		open(BCMD, "< extracted_matches.$iteration");
 		open(OUT, "+> temp.fasta");
@@ -254,7 +296,7 @@ sub PSIBLAST{
 				print OUT "$id"."$prot\n";
 			}
 			else{
-				print OUT $_;
+				print OUT "$_\n";
 			}
 		}
 		close BCMD;
@@ -262,7 +304,7 @@ sub PSIBLAST{
 		unlink "extracted_matches.$iteration";
 		rename "temp.fasta", "extracted_matches.$iteration";
 	}
-	system("mv besthits.txt temp.txt intermediates");
+	system("mv besthits.txt intermediates");
 	return("extracted_matches.$iteration");
 }
 
@@ -287,11 +329,12 @@ sub RE_SEED{
 		}
 		elsif($_=~/^C\t.*/){
 			my @split = split(/\t/,$_);
-			if(grep( /^$split[8]$/, @previously_searched ) ){
+			my $pattern = "to_run/$split[8].fasta";
+			if(grep( /^$pattern$/, @previously_searched ) ){
 				next;
 			}
 			else{
-				push(@cluster_seeds,$split[8]);
+				push(@cluster_seeds,$pattern);
 			}
 		}
 		else{
@@ -308,14 +351,16 @@ sub EXTRACTFASTA{
 	my $infasta = shift;
 	my @seqstoget = @_;
 	open(IN, "< $infasta") or die "Error: \n No valid multiple fasta input sequence passed to subroutine!";
-	my $toggle = 0;
+	my ($toggle,%toggles);
 	open(OUT, "+> new_seeds.fasta");
 	while(<IN>){
 	  if($_=~/\>/){
 			$toggle = 0;
+			next if($toggles{$_});
 			my($fh)=($_=~/\>(.*?)\R/);
-			if(grep( /^$fh$/,@seqstoget)){
+			if(grep( /^to_run\/$fh\.fasta$/,@seqstoget)){
 				print OUT ">$fh\n";
+				$toggles{$_}=1;
 				$toggle = 1;
 			}
 			else{
@@ -332,6 +377,10 @@ sub EXTRACTFASTA{
 	  }
 	}
 	close OUT;
-	move("$infasta","intermediates/$infasta");
+	move("$infasta","archive/$infasta");
 	return("new_seeds.fasta");
+}
+
+sub MESSAGES{
+
 }
