@@ -12,10 +12,7 @@ no warnings 'experimental';
 #2. that contains the whole database sequence
 #3. check the psi-blast routine for redundant dup checking.
 #4. add an option for using a single database and pblast only
-#5. add input checking sub
-#6. move directories below help
 #7. add verboxisty back in
-#8. give people a default command example (with defaults, and with modifications)
 #9. add a description to each subroutine
 
 
@@ -69,18 +66,6 @@ if($help==1){
 }
 else{}
 
-#check if query input is a fasta file
-open(TEST, "< $infasta") or	die "Input for query sequence cannot be opened (-in)\n";
-while(<TEST>){
-	if($_=~/\>/){
-		last;
-	}
-	else{
-		die "Query file does not seem to be a valid fasta file\n";
-	}
-}
-close TEST;
-
 #check if blast database files exist
 if("$outdatabase.pto" and "$outdatabase.ptf" and "$outdatabase.pot" and "$outdatabase.pos" and "$outdatabase.pdb" and "$outdatabase.pal"){}
 else{
@@ -91,7 +76,7 @@ else{
 	die "BLAST database files for PSSM construction not detected (check your -psidb)\n";
 }
 
-#directories, and check_for_pre_run_seqs
+#check for previous run outputs, OR check query input
 if(-d "to_run"){
 	my($backup_ref,$torun_ref)=RECOVER();
 	@placeholder = @{$backup_ref};
@@ -110,7 +95,20 @@ if(-d "to_run"){
 }
 else{
 	mkdir("to_run");
+	#check if query input is a fasta file
+	open(TEST, "< $infasta") or	die "Input for query sequence cannot be opened (-in)\n";
+	while(<TEST>){
+		if($_=~/\>/){
+			last;
+		}
+		else{
+			die "Query file does not seem to be a valid fasta file\n";
+		}
+	}
+	close TEST;
 }
+
+#make directories if needed
 unless(-d "intermediates"){
 	mkdir("intermediates");
 }
