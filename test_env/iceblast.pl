@@ -130,7 +130,6 @@ unless(-d "archive"){
 	mkdir("archive");
 }
 
-VERBOSEPRINT(1, "All inputs checked. Starting run.");
 MAIN();
 
 sub MAIN {
@@ -140,14 +139,12 @@ sub MAIN {
 		$lowerbound = $domain_length*.80;
 	}
 	CORELOOP($infasta,@placeholder);
-	VERBOSEPRINT(1, "All searches completed. No new centroids found. Moving to output.");
 	OUTPUT();
 }
 
 sub RECOVER{
 	#subroutine that recovers a previous run based on the condition of
 	#the home and to_run directories.
-	VERBOSEPRINT(1, "Recovering from previous run.");
 	my @to_run = glob "to_run/*.fasta";
 	my @backup;
 	open(BACKUP, "< backup.log");
@@ -169,15 +166,11 @@ sub BACKUP{
 }
 
 sub CORELOOP{
-	VERBOSEPRINT(1, "Beginning iteration $iteration.");
 	my $infile = shift;
 	my @seqs_to_search = @_;
-	VERBOSEPRINT(1, "Standardizing input file.");
 	STANDARDIZE($infile);
-	VERBOSEPRINT(1, "Splitting into individual queries");
   my(@split_query) = SPLITFASTA($infile);
 	push(@seqs_to_search,@split_query);
-	VERBOSEPRINT(1, "Starting BLAST searches");
 	my $matches = PSIBLAST(@split_query);
 	my $clustered = UCLUST($matches);
   my(@new_query_asc) = RE_SEED($clustered,@seqs_to_search);
@@ -224,7 +217,6 @@ sub OUTPUT{
   	close IN;
   }
   close FINAL;
-	VERBOSEPRINT(1, "ICE-BLAST run completed. Enjoy your sequences!");
 }
 
 sub AVERAGE_QUERY_LENGTH{
@@ -303,11 +295,8 @@ sub PSIBLAST{
 	my($subjectL,%matches,$strand);
 	open(BESTHITS, ">> besthits.txt");
 	foreach my $infasta (@query_files){
-		VERBOSEPRINT(1, "Creating PSSM for $infasta.");
 	  system("psiblast -db $psidatabase -out temp.txt -query $infasta -out_pssm $infasta.pssm -inclusion_ethresh $eval -outfmt \"6 sseqid sstart send\" -num_iterations $iters -num_threads $threads -save_pssm_after_last_round -max_target_seqs 50000");
-		VERBOSEPRINT(1, "Conducting psiBLAST search with PSSM.");
 		system("psiblast -db $outdatabase -in_pssm $infasta.pssm -out $infasta.blast6 -inclusion_ethresh $eval -evalue $eval -outfmt \"6 sseqid sstart send\" -num_threads $threads");
-		VERBOSEPRINT(1, "Filtering matches.");
 		open(PSI, "< $infasta.blast6") or die "No search conducted? \n";
 		while(<PSI>){
 			chomp;
@@ -364,13 +353,11 @@ sub PSIBLAST{
 		rename "temp.fasta", "extracted_matches.$iteration";
 	}
 	system("mv besthits.txt intermediates");
-	VERBOSEPRINT(1, "BLAST searches for iteration $iteration completed.");
 	return("extracted_matches.$iteration");
 }
 
 sub UCLUST{
 	#INPUTS
-	VERBOSEPRINT(1, "Clustering results.");
 	my $allmatches = shift;
 	system("uclust --sort $allmatches --output $allmatches.sorted");
 	system("uclust --input $allmatches.sorted --uc $allmatches.uc --id $clusterid");
@@ -380,7 +367,6 @@ sub UCLUST{
 
 
 sub RE_SEED{
-	VERBOSEPRINT(1, "Reseeding for next iteration with centroid sequences.");
 	my $clustalout = shift;
 	my @previously_searched = @_;
 	my @cluster_seeds;

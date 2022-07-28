@@ -1,0 +1,24 @@
+{
+  "version": "1.2",
+  "dbname": "yeast.faa",
+  "dbtype": "Protein",
+  "db-version": 5,
+  "description": "yeast.faa",
+  "number-of-letters": 2933022,
+  "number-of-sequences": 6016,
+  "last-updated": "2022-07-27T14:27:00",
+  "number-of-volumes": 1,
+  "bytes-total": 4279395,
+  "bytes-to-cache": 2987263,
+  "files": [
+    "yeast.faa.pdb",
+    "yeast.faa.phr",
+    "yeast.faa.pin",
+    "yeast.faa.pog",
+    "yeast.faa.pos",
+    "yeast.faa.pot",
+    "yeast.faa.psq",
+    "yeast.faa.ptf",
+    "yeast.faa.pto"
+  ]
+}
