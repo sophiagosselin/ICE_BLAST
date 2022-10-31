@@ -15,14 +15,15 @@ no warnings 'experimental';
 
 #inputs/globals:
 my $threads = 2;
-my $eval = 1e-20;
+my $eval = 1e-10;
 my $iters = 4;
 my $clusterid = 0.7;
+my $iterlimit="-1";
 my ($verbosity,$help,$loop,$domainspecific,$domain_length,$upperbound,$lowerbound,$iteration) = (0) x 8;
 my($infasta,$outdatabase,$psidatabase,@placeholder);
 
 #getoptions
-GetOptions ('ds' =>\$domainspecific, 'v' =>\$verbosity, 'id=s' => \$clusterid, 't=s' => \$threads, 'e=s' => \$eval, 'i=s' => \$iters, 'in=s' => \$infasta, 'psidb=s' => \$psidatabase, 'outdb=s' => \$outdatabase, 'help+' => \$help, 'h+' => \$help);
+GetOptions ('i_l=s' => \$iterlimit, 'ds' =>\$domainspecific, 'v' =>\$verbosity, 'id=s' => \$clusterid, 't=s' => \$threads, 'e=s' => \$eval, 'psi_i=s' => \$iters, 'in=s' => \$infasta, 'psidb=s' => \$psidatabase, 'outdb=s' => \$outdatabase, 'help+' => \$help, 'h+' => \$help);
 
 #check for help call
 if($help==1){
@@ -48,7 +49,7 @@ The following inputs are optional. Defaults shown.
 
 BLAST Options:
 [t]: Number of threads for psiblast. D: 2
-[i]: Number of psiblast iterations. D: 4
+[psi_i]: Number of psiblast iterations. D: 4
 [e]: Evalue cutoff for inclusion. D: 1e-20
 
 UCLUST Options:
@@ -63,28 +64,21 @@ Mode Selection:
 
 Other Options:
 [v]: Verbosity toggle. Pass 1 to activate. D: 0
+[i_l]: Iteration limit. Specifically limits the number of iterations (psiBLAST + UCLUST) ICE-BLAST goes through. By default there is no limit.
 ";
 }
 else{}
 
 VERBOSEPRINT(1, "Initializing");
 #check for key inputs
-if(!defined $infasta){
+if($infasta eq ""){
 	die "No input detected for query sequences (-in)\n";
 }
-elsif(!defined $psidatabase){
+elsif($psidatabase eq ""){
 	die "No input detected for clustered database (-psidb)\n";
 }
-elsif(!defined $outdatabase){
+elsif($outdatabase eq ""){
 	die "No input detected for search database (-outdb)\n";
-}
-
-#check if blast database files exist
-if(!-e "$outdatabase.pto"){
-	die "BLAST database files to extract sequences from not detected (check your -outdb)\n";
-}
-if(!-e "$psidatabase.pto"){
-	die "BLAST database files for PSSM construction not detected (check your -psidb)\n";
 }
 
 #check for previous run outputs, OR check query input
@@ -187,7 +181,12 @@ sub CORELOOP{
 	else{
 		my($new_infasta) = EXTRACTFASTA($matches,@new_query_asc);
 		$iteration++;
-		CORELOOP($new_infasta,@seqs_to_search);
+		if($iteration==$iterlimit){
+			VERBOSEPRINT(1, "Iteration limit reached. Ending run.");
+		}
+		else{
+			CORELOOP($new_infasta,@seqs_to_search);
+		}
 	}
 	return();
 }
