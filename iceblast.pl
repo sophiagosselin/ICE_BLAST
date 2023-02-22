@@ -21,7 +21,7 @@ GetOptions ('i_l=s' => \$iterlimit, 'ds' =>\$domainspecific, 'v' =>\$verbosity, 
 #check for help call
 if($help==1){
 	die
-"ICE-BLAST v1.1.0\n
+"ICE-BLAST v1.1.1\n
 Comprehensive protein database search for divergent homologs.
 Gosselin S. Gogarten J.P. (In Preparation)
 Iterative Cluster Expansion BLAST; a tool for comprehensive seuquence extraction.
@@ -65,7 +65,7 @@ else{}
 VERBOSEPRINT(1, "Initializing");
 
 #Setup, and seperate completed searches and uncompleted searches if this is a recovered run.
-my($executed_queries_refference,$input_queries_refference)=SETUP();
+my($ex_queries_refference,$unex_queries_refference)=SETUP();
 my @executed_queries = @{$ex_queries_refference};
 my @input_queries = @{$unex_queries_refference};
 
@@ -116,8 +116,8 @@ sub CORELOOP{
 
 	#parse array inputs
 	my($ex_queries_refference,$unex_queries_refference)= @_;
-	@executed_qs = @{$ex_queries_refference};
-	@unexecuted_qs = @{$unex_queries_refference};
+	my @executed_qs = @{$ex_queries_refference};
+	my @unexecuted_qs = @{$unex_queries_refference};
 
 	#takes all unsearched queries, returns all unique matches in the DB from BLAST search.
 	VERBOSEPRINT(1, "Starting BLAST searches.\n");
@@ -143,7 +143,7 @@ sub CORELOOP{
 
 	#begins the next iteration
 	else{
-		(@new_unexecuted_queries) = FASTA_PREP($new_infasta);
+		my (@new_unexecuted_queries) = FASTA_PREP($new_infasta);
 
 		#checks if iteration limit has been reached
 		$iteration++;
@@ -205,7 +205,7 @@ sub PSIBLAST_WORKFLOW{
 		VERBOSEPRINT(2, "Conducting psiBLAST search with PSSM.\n");
 		system("psiblast -db $outdatabase -in_pssm $infasta.pssm -out $infasta.blast6 -inclusion_ethresh $eval -evalue $eval -outfmt \"6 sseqid sstart send\" -num_threads $threads");
 		VERBOSEPRINT(2, "Filtering matches.\n");
-		push(@blastcmd_queries,(FILTER_BLAST("$infasta.blast6")); #this might not work. Check for errors here.
+		push(@blastcmd_queries,(FILTER_BLAST("$infasta.blast6"))); #this might not work. Check for errors here.
 		system("mv $infasta.blast6 $infasta.pssm $infasta intermediates");
 		BACKUP($infasta);
 	}
@@ -366,7 +366,7 @@ sub FASTA_PREP{
 	#standardizes the file, then splits it into individual fasta files for each sequence
 	my $fasta_file = shift;
 	STANDARDIZE_FASTA($fasta_file);
-	my(@fasta_files) = SPLIT_FASTA($fastafile);
+	my(@fasta_files) = SPLIT_FASTA($fasta_file);
 }
 
 sub FILE_I_O_CHECK{
@@ -376,17 +376,17 @@ sub FILE_I_O_CHECK{
 		die VERBOSEPRINT(0,"$path does not exist. Check file name for errors.\n");
 	}
 	my($read_privelage,$write_privelage) = (-r $path, -w _);
-	if(defined($read_privelage & $write_privelage){
+	if(defined($read_privelage & $write_privelage)){
 		VERBOSEPRINT(2,"All privelages present for $path.\n");
 	}
 	else{
-		die VERBOSEPRINT(0,"Missing privelages for $path. Check read and write privelages. Read $r, Write $w.\n");
+		die VERBOSEPRINT(0,"Missing privelages for $path. Check read and write privelages. Read $read_privelage, Write $write_privelage.\n");
 	}
 }
 
 sub DIRECTORY_CHECK{
 	#checks if directories exists. If not, the sub creates it.
-	foreach my $directory (@_);{
+	foreach my $directory (@_){
 		unless(-d $directory){
 			mkdir($directory);
 		}
@@ -396,47 +396,47 @@ sub DIRECTORY_CHECK{
 sub RECOVER{
 	#recovers array values for searched and unsearched queries
 	VERBOSEPRINT(1, "Recovering from previous run.\n");
-	my @unexecuted_queries = glob "to_run/*.fasta";
-	my @executed_queries;
+	my @unexecuted_queries_backup = glob "to_run/*.fasta";
+	my @executed_queries_backup;
 	open(BACKUP, "< backup.log");
 	while(<BACKUP>){
 		chomp;
-		push(@executed_queries,$_);
+		push(@executed_queries_backup,$_);
 	}
 	close BACKUP;
-	return(\@executed_queries,\@unexecuted_queries);
+	return(\@executed_queries_backup,\@unexecuted_queries_backup);
 }
 
 sub BACKUP{
 	#subroutine that prints to a file, and keeps track of which sequences
 	#have been searched with, such that recovering a run is easier
-	my $searcedseq = shift;
+	my $searcedseq_backup = shift;
 	open(BACKUP, ">> backup.log");
-	print BACKUP "$searcedseq\n";
+	print BACKUP "$searcedseq_backup\n";
 	close BACKUP;
 }
 
 sub SPLIT_FASTA{
 	#splits a multifasta file into several individual fasta files each containing
 	#1 sequence. Returns list of these files.
-	my $infasta = shift;
-	open(IN, "< $infasta");
-	my @fasta_files;
+	my $infasta_split = shift;
+	open(IN, "< $infasta_split");
+	my @fasta_files_split;
 	while(<IN>){
 	  if($_=~/\>/){
 			my($fh)=($_=~/\>(.*?)\R/);
 			close OUT;
 			open(OUT, "+> to_run/$fh.fasta");
 			print OUT ">$fh\n";
-			push(@fasta_files,"to_run/$fh.fasta");
+			push(@fasta_files_split,"to_run/$fh.fasta");
 	  }
 	  else{
 	    print OUT $_;
 	  }
 	}
 	close OUT;
-	move($infasta,"intermediates/$infasta");
-	return @fasta_files;
+	move($infasta_split,"intermediates/$infasta_split");
+	return @fasta_files_split;
 }
 
 sub STANDARDIZE_FASTA {
