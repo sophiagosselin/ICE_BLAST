@@ -7,16 +7,16 @@ use File::Copy;
 no warnings 'experimental';
 
 #inputs/globals:
-my $threads = 2;
+my $threads = 1;
 my $eval = 1e-10;
 my $iters = 4;
 my $clusterid = 0.7;
 my $iterlimit="-1";
-my ($verbosity,$help,$loop,$domainspecific,$domain_length,$upperbound,$lowerbound,$iteration) = (0) x 8;
-my($infasta,$outdatabase,$psidatabase);
+my $verbosity = my $help = my $loop = my $domainspecific = my $upperbound = my $lowerbound = my $iteration = 0;
+my($input_file,$outdatabase,$psidatabase);
 
 #getoptions
-GetOptions ('i_l=s' => \$iterlimit, 'ds' =>\$domainspecific, 'v' =>\$verbosity, 'id=s' => \$clusterid, 't=s' => \$threads, 'e=s' => \$eval, 'psi_i=s' => \$iters, 'in=s' => \$infasta, 'psidb=s' => \$psidatabase, 'outdb=s' => \$outdatabase, 'help+' => \$help, 'h+' => \$help);
+GetOptions ('i_l=s' => \$iterlimit, 'ds' =>\$domainspecific, 'v' =>\$verbosity, 'id=s' => \$clusterid, 't=s' => \$threads, 'e=s' => \$eval, 'psi_i=s' => \$iters, 'in=s' => \$input_file, 'psidb=s' => \$psidatabase, 'outdb=s' => \$outdatabase, 'help+' => \$help, 'h+' => \$help);
 
 #check for help call
 if($help==1){
@@ -74,6 +74,14 @@ MAIN();
 sub MAIN {
 	CORELOOP(\@input_queries,\@executed_queries);
 	VERBOSEPRINT(1, "All searches completed. No new centroids found. Moving to output.\n");
+
+	#cleanup
+	my @seed_sequence_files = glob "new_seeds*";
+	foreach my $seed_file (@seed_sequence_files){
+		move("$seed_file","intermediates/");
+	}
+	unlink "temp.txt";
+
 	OUTPUT();
 }
 
@@ -83,45 +91,55 @@ sub SETUP{
 	my(@executed_queries,@unexecuted_queries);
 
 	#check file inputs for privelages and existance
-	FILE_I_O_CHECK($infasta);
+	FILE_I_O_CHECK($input_file);
 	FILE_I_O_CHECK($psidatabase);
 	FILE_I_O_CHECK($outdatabase);
 
-	#if domain specific mode is enabled, get the bounds for search.
-	if($domainspecific == 1){
-		$domain_length = AVERAGE_QUERY_LENGTH($infasta);
-		$upperbound = $domain_length*1.20;
-		$lowerbound = $domain_length*.80;
-	}
-
 	#check if recovery is needed
 	if(-d "to_run"){
-		my($ex_queries_refference,$unex_queries_refference)=RECOVER();
-		@executed_queries = @{$ex_queries_refference};
-		@input_queries = @{$unex_queries_refference};
+		my($ex_queries_refference_setup,$unex_queries_refference_setup)=RECOVER($domainspecific);
+		@executed_queries = @{$ex_queries_refference_setup};
+		@unexecuted_queries = @{$unex_queries_refference_setup};
+		#make directories if needed
+		DIRECTORY_CHECK("intermediates","output","archive","to_run");
 	}
-	#if no recovery is needed, prepare input file for searches
+
+	#if no recovery is needed, prepare input file for searches and get domain length if DS mode is active
 	else{
-		(@input_queries) = FASTA_PREP($infasta);
+		if($domainspecific == 1){
+			AVERAGE_QUERY_LENGTH($input_file);
+		}
+		#make directories if needed
+		DIRECTORY_CHECK("intermediates","output","archive","to_run");
+		(@unexecuted_queries) = FASTA_PREP($input_file);
+		#create backup file
+		BACKUP("");
 	}
-	#make directories if needed
-	DIRECTORY_CHECK("intermediates","output","archive","to_run");
+
+
 
 	VERBOSEPRINT(1, "All inputs checked. Starting run.\n");
-	return(\@executed_queries,\@input_queries);
+	return(\@executed_queries,\@unexecuted_queries);
 }
 
 sub CORELOOP{
 	VERBOSEPRINT(1, "Beginning iteration $iteration.\n");
 
 	#parse array inputs
-	my($ex_queries_refference,$unex_queries_refference)= @_;
-	my @executed_qs = @{$ex_queries_refference};
-	my @unexecuted_qs = @{$unex_queries_refference};
+	my($unex_queries_refference_core,$ex_queries_refference_core)= @_;
+	my @executed_qs = @{$ex_queries_refference_core};
+	my @unexecuted_qs = @{$unex_queries_refference_core};
 
 	#takes all unsearched queries, returns all unique matches in the DB from BLAST search.
 	VERBOSEPRINT(1, "Starting BLAST searches.\n");
 	my $BLAST_matches = PSIBLAST_WORKFLOW(@unexecuted_qs);
+
+	#exits loops if no new matches were found at all
+	if(-z $BLAST_matches){
+		return()
+	}
+
+	#updates array of searched sequences.
 	push(@executed_qs,@unexecuted_qs);
 	UNIQUE_ARRAY(@executed_qs);
 
@@ -131,10 +149,10 @@ sub CORELOOP{
 
 	#extracts cluster centroids to be used as new queries
 	VERBOSEPRINT(1, "Identifying new query sequences.\n");
-  my(@new_query_asc) = RE_SEED($clustered_matches,@executed_qs);
+  my(@new_query_asc) = GET_NEW_QUERIES($clustered_matches,@executed_qs);
 
 	#extracts new query sequences if possible
-	my($new_infasta) = EXTRACTFASTA($BLAST_matches,@new_query_asc);
+	my($new_infasta) = EXTRACT_FASTA($BLAST_matches,@new_query_asc);
 
 	#exits loop if no new queries are found
 	if(!@new_query_asc){
@@ -151,7 +169,7 @@ sub CORELOOP{
 			VERBOSEPRINT(1, "Iteration limit reached. Ending run.\n");
 		}
 		else{
-			CORELOOP(\@executed_qs,\@new_unexecuted_queries);
+			CORELOOP(\@new_unexecuted_queries,\@executed_qs);
 		}
 	}
 	return();
@@ -196,50 +214,28 @@ sub PSIBLAST_WORKFLOW{
 	#Takes a set of input sequences in FASTA format as input.
 	#returns all unique matches
 	my @query_files = @_;
-	my @blastcmd_queries;
+	my $filtered_results;
 
-	#uses each input file as a query for PSI-BLAST search
+	#uses each input file as a query for PSI-BLAST search then filters results for next step
 	foreach my $infasta (@query_files){
 		VERBOSEPRINT(2, "Creating PSSM for $infasta.\n");
-	  system("psiblast -db $psidatabase -out temp.txt -query $infasta -out_pssm $infasta.pssm -inclusion_ethresh $eval -outfmt \"6 sseqid sstart send\" -num_iterations $iters -num_threads $threads -save_pssm_after_last_round -max_target_seqs 50000");
+	  system("psiblast -db $psidatabase -query $infasta -out temp.txt -out_pssm $infasta.pssm -inclusion_ethresh $eval -outfmt \"6 sseqid sstart send\" -num_iterations $iters -num_threads $threads -save_pssm_after_last_round -max_target_seqs 50000");
 		VERBOSEPRINT(2, "Conducting psiBLAST search with PSSM.\n");
 		system("psiblast -db $outdatabase -in_pssm $infasta.pssm -out $infasta.blast6 -inclusion_ethresh $eval -evalue $eval -outfmt \"6 sseqid sstart send\" -num_threads $threads");
 		VERBOSEPRINT(2, "Filtering matches.\n");
-		push(@blastcmd_queries,(FILTER_BLAST("$infasta.blast6"))); #this might not work. Check for errors here.
-		system("mv $infasta.blast6 $infasta.pssm $infasta intermediates");
-		BACKUP($infasta);
+		$filtered_results = FILTER_BLAST("$infasta.blast6");
+		move("$infasta.blast6","intermediates/");
+		move("$infasta.pssm","intermediates/");
+		move("$infasta","intermediates/");
+		BACKUP("$infasta\n");
 	}
 
 	#extracts BLAST matches from the above searches
-  system("blastdbcmd -db $outdatabase -entry @blastcmd_queries -outfmt \"%f\" > extracted_matches.$iteration");
-	STANDARDIZE("extracted_matches.$iteration");
-	DS_MODE_REANNOTATE("extracted_matches.$iteration");
+  system("blastdbcmd -db $outdatabase -entry_batch $filtered_results -outfmt \"\%f\" > extracted_matches.$iteration");
+	move("$filtered_results","intermediates/$filtered_results");
+	STANDARDIZE_FASTA("extracted_matches.$iteration");
 	VERBOSEPRINT(1, "BLAST searches for iteration $iteration completed.\n");
 	return("extracted_matches.$iteration");
-}
-
-sub DS_MODE_REANNOTATE{
-	#checks if domain specific mode is enabled
-	#if so, goes through a given input file and reannotates the ascession ID's to be more human readable
-	my $input = shift;
-	if($domainspecific == 1){
-		open(BCMD, "< $input");
-		open(OUT, "+> temp.fasta");
-		while(<BCMD>){
-			chomp;
-			if($_=~/\>/){
-				my($id,$prot)=($_=~/(\>.*)\_\d+\-\d+(\_+.*?)/);
-				print OUT "$id"."$prot\n";
-			}
-			else{
-				print OUT "$_\n";
-			}
-		}
-		close BCMD;
-		close OUT;
-		unlink "$input";
-		rename "temp.fasta", "$input";
-	}
 }
 
 sub FILTER_BLAST{
@@ -248,6 +244,7 @@ sub FILTER_BLAST{
 	my $blast_results = shift;
 	my (%best_hits,@entries_for_blastcmd);
 	open(BLAST, "< $blast_results") or die VERBOSEPRINT(0, "Check your BLAST software and databases for issues. No BLAST output from search was found.\n");
+	open(OUT, "+> filtered_matches_iteration_$iteration.txt");
 	while(<BLAST>){
 		chomp;
 		next if($best_hits{$_});
@@ -266,28 +263,31 @@ sub FILTER_BLAST{
 			}
 			$match_length = $site_end-$site_start;
 			next if($match_length<$lowerbound || $match_length>$upperbound);
-			push(@entries_for_blastcmd,"$output_columns[0]\ $output_columns[1]\-$output_columns[2]\ $strand\,");
+			print OUT "$output_columns[0]\ $output_columns[1]\-$output_columns[2]\ $strand\n";
 		}
 		else{
-			push(@entries_for_blastcmd,"$output_columns[0]\,")
+			print OUT "$output_columns[0]\n";
 		}
 		$best_hits{$_}=1;
 	}
 	close BLAST;
-	return(@entries_for_blastcmd);
+	close OUT;
+	return("filtered_matches_iteration_$iteration.txt");
 }
 
 sub UCLUST{
 	#INPUTS
 	my $sequences_to_cluster = shift;
-	system("uclust --sort $sequences_to_cluster --output $sequences_to_cluster.sorted") or die VERBOSEPRINT(0,"UCLUST error. Check package version number, and confirm with versions used on GITHub.\n");
-	system("uclust --input $sequences_to_cluster.sorted --uc $sequences_to_cluster.uc --id $clusterid") or die VERBOSEPRINT(0,"UCLUST error. Check package version number, and confirm with versions used on GITHub.\n");
+	system("usearch -cluster_fast $sequences_to_cluster -sort length -id $clusterid -uc $sequences_to_cluster.uc");
+	if(!-e "$sequences_to_cluster.uc"){
+		die VERBOSEPRINT(0,"UCLUST error. Check version number, and make sure it can be accessed from the command line via \"usearch\" without an alias.\n");
+	}
 	move("$sequences_to_cluster.sorted","intermediates/$sequences_to_cluster.sorted");
 	return("$sequences_to_cluster.uc");
 }
 
 
-sub RE_SEED{
+sub GET_NEW_QUERIES{
 	#takes a clustal output file, and an array of searched sequences as Inputs
 	#returns list of new inputs that have not been searched with yet.
 	VERBOSEPRINT(1, "Reseeding for next iteration with centroid sequences.\n");
@@ -325,7 +325,7 @@ sub EXTRACT_FASTA{
 	my @seqstoget = @_;
 	open(IN, "< $infasta") or die VERBOSEPRINT(0, "No valid multiple fasta input sequence found $infasta. Please try running again, otherwise contact the developer.\n");
 	my ($toggle,%toggles);
-	open(OUT, "+> new_seeds.fasta");
+	open(OUT, "+> new_seeds_iteration_$iteration.fasta");
 	while(<IN>){
 	  if($_=~/\>/){
 			$toggle = 0;
@@ -351,11 +351,11 @@ sub EXTRACT_FASTA{
 	}
 	close OUT;
 	move("$infasta","archive/$infasta");
-	return("new_seeds.fasta");
+	return("new_seeds_iteration_$iteration.fasta");
 }
 
 sub VERBOSEPRINT{
-	(my $verblevel, my $message) =@_;
+	(my $verblevel, my $message) = @_;
 	if($verblevel <= $verbosity){
 		print "$message\n";
 	}
@@ -367,13 +367,14 @@ sub FASTA_PREP{
 	my $fasta_file = shift;
 	STANDARDIZE_FASTA($fasta_file);
 	my(@fasta_files) = SPLIT_FASTA($fasta_file);
+	return(@fasta_files);
 }
 
 sub FILE_I_O_CHECK{
 	#checks a given file path for existance, and R/W privelages
 	my ($path) = shift;
 	if(!-e $path){
-		die VERBOSEPRINT(0,"$path does not exist. Check file name for errors.\n");
+		die VERBOSEPRINT(0,"$path does not exist. Check file name for errors.\nAlso make sure to run in a directory that has not previously completed a search.\n");
 	}
 	my($read_privelage,$write_privelage) = (-r $path, -w _);
 	if(defined($read_privelage & $write_privelage)){
@@ -396,15 +397,25 @@ sub DIRECTORY_CHECK{
 sub RECOVER{
 	#recovers array values for searched and unsearched queries
 	VERBOSEPRINT(1, "Recovering from previous run.\n");
+	my $domain_specific_toggle = shift;
 	my @unexecuted_queries_backup = glob "to_run/*.fasta";
 	my @executed_queries_backup;
+	my $avg_length;
 	open(BACKUP, "< backup.log");
 	while(<BACKUP>){
 		chomp;
-		push(@executed_queries_backup,$_);
+		if($domain_specific_toggle == 1){
+			my @split_recover = split(/\t/,$_);
+			$upperbound = $split_recover[0];
+			$lowerbound = $split_recover[1];
+			$domain_specific_toggle=0;
+		}
+		else{
+			push(@executed_queries_backup,$_);
+		}
 	}
 	close BACKUP;
-	return(\@executed_queries_backup,\@unexecuted_queries_backup);
+	return($avg_length,\@executed_queries_backup,\@unexecuted_queries_backup);
 }
 
 sub BACKUP{
@@ -412,7 +423,7 @@ sub BACKUP{
 	#have been searched with, such that recovering a run is easier
 	my $searcedseq_backup = shift;
 	open(BACKUP, ">> backup.log");
-	print BACKUP "$searcedseq_backup\n";
+	print BACKUP "$searcedseq_backup";
 	close BACKUP;
 }
 
@@ -424,9 +435,10 @@ sub SPLIT_FASTA{
 	my @fasta_files_split;
 	while(<IN>){
 	  if($_=~/\>/){
-			my($fh)=($_=~/\>(.*?)\R/);
+			chomp;
+			my($fh)=($_=~/\>(.*)/);
 			close OUT;
-			open(OUT, "+> to_run/$fh.fasta");
+			open(OUT, "+> to_run/$fh.fasta") or die VERBOSEPRINT(0,"File $infasta_split at annotation line $_ was not properly formatted to create a new fasta file with. Check for unique characters, or windows end lines.\n");
 			print OUT ">$fh\n";
 			push(@fasta_files_split,"to_run/$fh.fasta");
 	  }
@@ -447,7 +459,7 @@ sub STANDARDIZE_FASTA {
 	open(OUT, "+> temp.fasta");
 	while(<IN>){
 		if($_=~/\>/){
-			$_=~s/[\ \[\]\(\)\:\;\/\.]/\_/g;
+			$_=~s/[\ \[\]\(\)\:\;\/\.\-\~\`\!\@\#\$\%\^\&\*\=\+\{\}\?]/\_/g;
 			print OUT $_;
 		}
 		else{
@@ -465,7 +477,7 @@ sub AVERAGE_QUERY_LENGTH{
 	#returns average length of sequences therein
 	my $fastafile = shift;
 	my @lengths;
-	my ($number,$average,$sequence_length) = 0;
+	my $number = my $average = my $sequence_length = 0;
 	open(IN, "< $fastafile");
 	while(<IN>){
 		chomp;
@@ -484,7 +496,9 @@ sub AVERAGE_QUERY_LENGTH{
 		$average += $length;
 	}
 	$average=$average/$number;
-	return($average);
+	$upperbound = $average*1.20;
+	$lowerbound = $average*.80;
+	BACKUP("$upperbound\t$lowerbound\n");
 }
 
 sub UNIQUE_ARRAY{
