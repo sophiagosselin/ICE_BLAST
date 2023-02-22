@@ -12,8 +12,8 @@ You should be able to just use any up to date version of the dependencies, but v
 
 Quick Example:
 
-perl iceblast.pl -in sample.fasta -db1 db_for_pssm.fasta -db3 db_to_search.fasta
+perl iceblast.pl -in sample.fasta -psidb db_for_pssm.fasta -outdb db_to_search.fasta
 
 You can add options as desired, see -H for more information.
 
-Importantly, if you are interested in just a portion of your query make sure to use the -ds option.
+Importantly, if you are interested in just a portion of your query make sure to use the domain specific option (ds). This will ensure that you only caputre the domain or region of interest and will confine your searches to a size window of 80-120% of the average length of your original queries.
