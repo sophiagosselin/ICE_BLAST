@@ -1,5 +1,5 @@
 # ICE-BLAST
-ICE-BLAST (Iterative Cluster Expansion BLAST) is designed to capture as many homologs of a given query within your database of choice. 
+ICE-BLAST (Iterative Cluster Expansion BLAST) is designed to capture large numbers of very divergent homologs of a given query within your database of choice. 
 
 Dependencies:
 - usearch (v11.0.667)
