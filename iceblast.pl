@@ -16,7 +16,7 @@ my $verbosity = my $help = my $loop = my $domainspecific = my $upperbound = my $
 my($input_file,$outdatabase,$psidatabase);
 
 #getoptions
-GetOptions ('i_l=s' => \$iterlimit, 'ds' =>\$domainspecific, 'v' =>\$verbosity, 'id=s' => \$clusterid, 't=s' => \$threads, 'e=s' => \$eval, 'psi_i=s' => \$iters, 'in=s' => \$input_file, 'psidb=s' => \$psidatabase, 'outdb=s' => \$outdatabase, 'help+' => \$help, 'h+' => \$help);
+GetOptions ('i_l=s' => \$iterlimit, 'ds' =>\$domainspecific, 'v=i' =>\$verbosity, 'id=s' => \$clusterid, 't=s' => \$threads, 'e=s' => \$eval, 'psi_i=s' => \$iters, 'in=s' => \$input_file, 'psidb=s' => \$psidatabase, 'outdb=s' => \$outdatabase, 'help+' => \$help, 'h+' => \$help);
 
 #check for help call
 if($help==1){
