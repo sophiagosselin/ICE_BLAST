@@ -12,7 +12,7 @@ You will need at 2 blastable amino acid sequence databses. One will be used to m
 
 You should be able to just use any up to date version of the dependencies, but versions used in development are provided.
 
-Quick Example:
+### Usage Example:
 
     perl iceblast.pl -in sample.fasta -psidb db_for_pssm.fasta -outdb db_to_search.fasta
 
