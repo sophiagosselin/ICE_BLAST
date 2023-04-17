@@ -374,14 +374,16 @@ sub FILE_I_O_CHECK{
 	#checks a given file path for existance, and R/W privelages
 	my ($path) = shift;
 	if(!-e $path){
-		die VERBOSEPRINT(0,"$path does not exist. Check file name for errors.\nAlso make sure to run in a directory that has not previously completed a search.\n");
+		VERBOSEPRINT(0,"$path does not exist. Check file name for errors.\nAlso make sure to run in a directory that has not previously completed a search.\n");
+		die;
 	}
 	my($read_privelage,$write_privelage) = (-r $path, -w _);
 	if(defined($read_privelage & $write_privelage)){
 		VERBOSEPRINT(2,"All privelages present for $path.\n");
 	}
 	else{
-		die VERBOSEPRINT(0,"Missing privelages for $path. Check read and write privelages. Read $read_privelage, Write $write_privelage.\n");
+		VERBOSEPRINT(0,"Missing privelages for $path. Check read and write privelages. Read $read_privelage, Write $write_privelage.\n");
+		die;
 	}
 }
 
