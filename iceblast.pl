@@ -90,11 +90,6 @@ sub SETUP{
 	#Additionally checks if recovery is nessecary, and if so sends inputs to RECOVER subroutine
 	my(@executed_queries,@unexecuted_queries);
 
-	#check file inputs for privelages and existance
-	FILE_I_O_CHECK($input_file);
-	FILE_I_O_CHECK($psidatabase);
-	FILE_I_O_CHECK($outdatabase);
-
 	#check if recovery is needed
 	if(-d "to_run"){
 		my($ex_queries_refference_setup,$unex_queries_refference_setup)=RECOVER($domainspecific);
@@ -106,6 +101,11 @@ sub SETUP{
 
 	#if no recovery is needed, prepare input file for searches and get domain length if DS mode is active
 	else{
+		#check file inputs for privelages and existance
+		FILE_I_O_CHECK($input_file);
+		FILE_I_O_CHECK($psidatabase);
+		FILE_I_O_CHECK($outdatabase);
+
 		if($domainspecific == 1){
 			AVERAGE_QUERY_LENGTH($input_file);
 		}
