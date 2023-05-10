@@ -417,7 +417,7 @@ sub RECOVER{
 		}
 	}
 	close BACKUP;
-	return($avg_length,\@executed_queries_backup,\@unexecuted_queries_backup);
+	return(\@executed_queries_backup,\@unexecuted_queries_backup);
 }
 
 sub BACKUP{
