@@ -21,7 +21,7 @@ GetOptions ('i_l=s' => \$iterlimit, 'ds' =>\$domainspecific, 'v=i' =>\$verbosity
 #check for help call
 if($help==1){
 	die
-"ICE-BLAST v1.1.1\n
+"ICE-BLAST v1.1.2\n
 Comprehensive protein database search for divergent homologs.
 Gosselin S. Gogarten J.P. (In Preparation)
 Iterative Cluster Expansion BLAST; a tool for comprehensive seuquence extraction.
@@ -244,7 +244,7 @@ sub FILTER_BLAST{
 	my $blast_results = shift;
 	my (%best_hits,@entries_for_blastcmd);
 	open(BLAST, "< $blast_results") or die VERBOSEPRINT(0, "Check your BLAST software and databases for issues. No BLAST output from search was found.\n");
-	open(OUT, "+> filtered_matches_iteration_$iteration.txt");
+	open(OUT, ">> filtered_matches_iteration_$iteration.txt");
 	while(<BLAST>){
 		chomp;
 		next if($best_hits{$_});
