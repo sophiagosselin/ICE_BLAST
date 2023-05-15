@@ -16,12 +16,12 @@ my $verbosity = my $help = my $loop = my $domainspecific = my $upperbound = my $
 my($input_file,$outdatabase,$psidatabase);
 
 #getoptions
-GetOptions ('i_l=s' => \$iterlimit, 'ds' =>\$domainspecific, 'v=i' =>\$verbosity, 'id=s' => \$clusterid, 't=s' => \$threads, 'e=s' => \$eval, 'psi_i=s' => \$iters, 'in=s' => \$input_file, 'psidb=s' => \$psidatabase, 'outdb=s' => \$outdatabase, 'help+' => \$help, 'h+' => \$help);
+GetOptions ('i_l=s' => \$iterlimit, 'ds=s' =>\$domainspecific, 'v=i' =>\$verbosity, 'id=s' => \$clusterid, 't=s' => \$threads, 'e=s' => \$eval, 'psi_i=s' => \$iters, 'in=s' => \$input_file, 'psidb=s' => \$psidatabase, 'outdb=s' => \$outdatabase, 'help+' => \$help, 'h+' => \$help);
 
 #check for help call
 if($help==1){
 	die
-"ICE-BLAST v1.1.2\n
+"ICE-BLAST v1.2.0\n
 Comprehensive protein database search for divergent homologs.
 Gosselin S. Gogarten J.P. (In Preparation)
 Iterative Cluster Expansion BLAST; a tool for comprehensive seuquence extraction.
@@ -38,7 +38,7 @@ The following inputs are required:
 [outdb]: location of BLAST database you want to pull all matches from.
 	Make sure your outdb has been set up with the parse_seqids option.
 
-The following inputs are optional. Defaults shown.
+The following inputs are optional. Defaults shown as (D: ###).
 
 BLAST Options:
 [t]: Number of threads for psiblast. D: 2
@@ -49,11 +49,11 @@ UCLUST Options:
 	[id]: Percent ID for uclust clustering. D: 0.7
 
 Mode Selection:
-[ds]: Domain specific toggle.
+[ds]: Domain specific toggle. D: Not activated
 	This mode will make ICE-BLAST only use the matched region of a subject sequence for future searches.
 	This is useful when your target is a single domain, or a molecular parasite.
-	Additionally this option filters out matches that are 20% larger or smaller than your query.
-	By default this option is turned off.
+	Use the flag and specify a cutoff % to filter out matches that are X% larger or smaller than your query.
+	Example usage: -ds .25
 
 Other Options:
 [v]: Verbosity level. 1 for key checkpoints only. 2 for all messages. D: 0
@@ -106,9 +106,15 @@ sub SETUP{
 		FILE_I_O_CHECK($psidatabase);
 		FILE_I_O_CHECK($outdatabase);
 
-		if($domainspecific == 1){
-			AVERAGE_QUERY_LENGTH($input_file);
+		#finds upper and lower bounds for BLAST result size filtering if requested
+		#also checks if user input is between 0-1 if not convert appropriately
+		if($domainspecific != 0){
+			if($domainspecific > 1){
+				$domainspecific = ($domainspecific/100);
+			}
+			DOMAIN_SPECIFIC_CUTOFF($input_file);
 		}
+
 		#make directories if needed
 		DIRECTORY_CHECK("intermediates","output","archive","to_run");
 		(@unexecuted_queries) = FASTA_PREP($input_file);
@@ -249,7 +255,7 @@ sub FILTER_BLAST{
 		chomp;
 		next if($best_hits{$_});
 		my @output_columns = split(/\t/, $_);
-		if($domainspecific == 1){
+		if($domainspecific != 0){
 			my ($strand,$site_start,$site_end,$match_length);
 			if(($output_columns[1]-$output_columns[2]) >=0){
 				$strand="minus";
@@ -402,11 +408,10 @@ sub RECOVER{
 	my $domain_specific_toggle = shift;
 	my @unexecuted_queries_backup = glob "to_run/*.fasta";
 	my @executed_queries_backup;
-	my $avg_length;
 	open(BACKUP, "< backup.log");
 	while(<BACKUP>){
 		chomp;
-		if($domain_specific_toggle == 1){
+		if($domain_specific_toggle != 0){
 			my @split_recover = split(/\t/,$_);
 			$upperbound = $split_recover[0];
 			$lowerbound = $split_recover[1];
@@ -474,12 +479,13 @@ sub STANDARDIZE_FASTA {
 	rename "temp.fasta", $fastafile;
 }
 
-sub AVERAGE_QUERY_LENGTH{
+sub DOMAIN_SPECIFIC_CUTOFF{
 	#takes a set of input sequences from one FASTA file
-	#returns average length of sequences therein
+	#returns an upper and lower bound for sequence searches when using domain specific mode
+	#uses the user specified % for + and -
 	my $fastafile = shift;
 	my @lengths;
-	my $number = my $average = my $sequence_length = 0;
+	my $difference = my $sequence_length = 0;
 	open(IN, "< $fastafile");
 	while(<IN>){
 		chomp;
@@ -493,13 +499,10 @@ sub AVERAGE_QUERY_LENGTH{
 		}
 	}
 	push(@lengths,$sequence_length);
-	foreach my $length (@lengths){
-		$number++;
-		$average += $length;
-	}
-	$average=$average/$number;
-	$upperbound = $average*1.20;
-	$lowerbound = $average*.80;
+	($upperbound,$lowerbound) = (sort {$a <=> $b} @lengths)[0,-1];
+	$difference = $upperbound - $lowerbound;
+	$upperbound += $difference*$domainspecific;
+	$lowerbound -= $difference*$domainspecific;
 	BACKUP("$upperbound\t$lowerbound\n");
 }
 

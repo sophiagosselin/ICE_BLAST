@@ -30,4 +30,4 @@ export PATH=~/home/FCAM/sgosselin/uniref50:$PATH
 
 #refer to the perl script or -H for information on options invoked
 #make sure to include full path to databases, since ICE BLAST checks them for R/W privs
-perl iceblast.pl -in intein_centroids.fasta -psidb /home/FCAM/sgosselin/uniref50/uniref50.fasta -outdb /home/FCAM/sgosselin/22_08_01_GPD_ice/database/GPD_proteome.faa -t 16 -id 0.60 -e 1e-20 -ds
+perl iceblast.pl -in intein_centroids.fasta -psidb /home/FCAM/sgosselin/uniref50/uniref50.fasta -outdb /home/FCAM/sgosselin/22_08_01_GPD_ice/database/GPD_proteome.faa -t 16 -id 0.60 -e 1e-20 -ds .25
