@@ -21,7 +21,7 @@ GetOptions ('i_l=s' => \$iterlimit, 'ds=s' =>\$domainspecific, 'v=i' =>\$verbosi
 #check for help call
 if($help==1){
 	die
-"ICE-BLAST v1.2.0\n
+"ICE-BLAST v1.2.1\n
 Comprehensive protein database search for divergent homologs.
 Gosselin S. Gogarten J.P. (In Preparation)
 Iterative Cluster Expansion BLAST; a tool for comprehensive seuquence extraction.
@@ -500,9 +500,8 @@ sub DOMAIN_SPECIFIC_CUTOFF{
 	}
 	push(@lengths,$sequence_length);
 	($upperbound,$lowerbound) = (sort {$a <=> $b} @lengths)[0,-1];
-	$difference = $upperbound - $lowerbound;
-	$upperbound += $difference*$domainspecific;
-	$lowerbound -= $difference*$domainspecific;
+	$upperbound += $lowerbound*$domainspecific;
+	$lowerbound -= $lowerbound*$domainspecific;
 	BACKUP("$upperbound\t$lowerbound\n");
 }
 
