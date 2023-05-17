@@ -250,7 +250,7 @@ sub FILTER_BLAST{
 	my $blast_results = shift;
 	my (%best_hits,@entries_for_blastcmd);
 	open(BLAST, "< $blast_results") or die VERBOSEPRINT(0, "Check your BLAST software and databases for issues. No BLAST output from search was found.\n");
-	open(OUT, ">> filtered_matches_iteration_$iteration.txt");
+	open(OUT, "+> filtered_matches_iteration_$iteration.txt");
 	while(<BLAST>){
 		chomp;
 		next if($best_hits{$_});
