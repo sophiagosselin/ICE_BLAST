@@ -18,7 +18,7 @@
 #dependencies
 module load blast/2.11.0
 module load perl
-module load uclust
+module load usearch
 
 #put paths for the databases you intend to use here.
 export BLASTDB=$BLASTDB:/home/FCAM/sgosselin/22_08_01_GPD_ice/database
