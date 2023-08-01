@@ -239,6 +239,9 @@ sub PSIBLAST_WORKFLOW{
 	#extracts BLAST matches from the above searches
   system("blastdbcmd -db $outdatabase -entry_batch $filtered_results -outfmt \"\%f\" > extracted_matches.$iteration");
 	move("$filtered_results","intermediates/$filtered_results");
+	if($domainspecific != 0){
+		REMOVE_BOUNDS("extracted_matches.$iteration");
+	}
 	STANDARDIZE_FASTA("extracted_matches.$iteration");
 	VERBOSEPRINT(1, "BLAST searches for iteration $iteration completed.\n");
 	return("extracted_matches.$iteration");
@@ -509,4 +512,27 @@ sub UNIQUE_ARRAY{
 	#takes an array as input, returns an array with only unique values.
 	my %seen;
   grep !$seen{$_}++, @_;
+}
+
+sub REMOVE_BOUNDS{
+	#takes output from blastcmd and removes the bound data for the match
+	#If this is not done, you can get 10 matches or more to the same sequence
+	#with slightly different bounds.
+	my $fasta_file = shift;
+	open(IN, "< $fasta_file");
+	open(OUT, "+> temp.fasta");
+	while(<IN>){
+		chomp;
+		if($_=~/\>.*?\:/){
+			my($new_asc)=($_=~/(\>.*?)\:.*/);
+			print OUT "$new_asc\n";
+		}
+		else{
+			print OUT "$_\n";
+		}
+	}
+	close IN;
+	close OUT;
+	unlink $fasta_file;
+	rename "temp.fasta", $fasta_file;
 }
