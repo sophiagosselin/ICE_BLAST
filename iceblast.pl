@@ -239,10 +239,10 @@ sub PSIBLAST_WORKFLOW{
 	#extracts BLAST matches from the above searches
   system("blastdbcmd -db $outdatabase -entry_batch $filtered_results -outfmt \"\%f\" > extracted_matches.$iteration");
 	move("$filtered_results","intermediates/$filtered_results");
+	STANDARDIZE_FASTA("extracted_matches.$iteration");
 	if($domainspecific != 0){
 		REMOVE_BOUNDS("extracted_matches.$iteration");
 	}
-	STANDARDIZE_FASTA("extracted_matches.$iteration");
 	VERBOSEPRINT(1, "BLAST searches for iteration $iteration completed.\n");
 	return("extracted_matches.$iteration");
 }
@@ -252,12 +252,30 @@ sub FILTER_BLAST{
 	#Retrieves the best hits for each match, and makes sure they pass domain specific cutoffs if appropriate.
 	my $blast_results = shift;
 	my (%best_hits,@entries_for_blastcmd);
+
+	#READIN CURRENT MATCHES FOUND
+	if(-e "filtered_matches_iteration_$iteration.txt"){
+		open(my $in, "< filtered_matches_iteration_$iteration.txt");
+		while(<$in>){
+			chomp;
+			if($domainspecific != 0){
+				my @readin_columns=split(/\ /, $_);
+				$best_hits{$readin_columns[0]}=1;
+			}
+			else{
+				$best_hits{$_}=1;
+			}
+		}
+		close $in;
+	}
+	else{}
+
 	open(BLAST, "< $blast_results") or die VERBOSEPRINT(0, "Check your BLAST software and databases for issues. No BLAST output from search was found.\n");
 	open(OUT, ">> filtered_matches_iteration_$iteration.txt");
 	while(<BLAST>){
 		chomp;
-		next if($best_hits{$_});
 		my @output_columns = split(/\t/, $_);
+		next if($best_hits{$output_columns[0]});
 		if($domainspecific != 0){
 			my ($strand,$site_start,$site_end,$match_length);
 			if(($output_columns[1]-$output_columns[2]) >=0){
@@ -277,7 +295,7 @@ sub FILTER_BLAST{
 		else{
 			print OUT "$output_columns[0]\n";
 		}
-		$best_hits{$_}=1;
+		$best_hits{$output_columns[0]}=1;
 	}
 	close BLAST;
 	close OUT;
@@ -523,9 +541,10 @@ sub REMOVE_BOUNDS{
 	open(OUT, "+> temp.fasta");
 	while(<IN>){
 		chomp;
-		if($_=~/\>.*?\:/){
-			my($new_asc)=($_=~/(\>.*?)\:.*/);
+		if($_=~/\>/){
+			my($new_asc)=($_=~/(\>.*)\_\d+?\_\d+?\_$/);
 			print OUT "$new_asc\n";
+			#print "$new_asc\n";
 		}
 		else{
 			print OUT "$_\n";
