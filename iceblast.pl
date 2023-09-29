@@ -239,10 +239,10 @@ sub PSIBLAST_WORKFLOW{
 	#extracts BLAST matches from the above searches
   system("blastdbcmd -db $outdatabase -entry_batch $filtered_results -outfmt \"\%f\" > extracted_matches.$iteration");
 	move("$filtered_results","intermediates/$filtered_results");
-	STANDARDIZE_FASTA("extracted_matches.$iteration");
 	if($domainspecific != 0){
 		REMOVE_BOUNDS("extracted_matches.$iteration");
 	}
+	STANDARDIZE_FASTA("extracted_matches.$iteration");
 	VERBOSEPRINT(1, "BLAST searches for iteration $iteration completed.\n");
 	return("extracted_matches.$iteration");
 }
@@ -542,9 +542,9 @@ sub REMOVE_BOUNDS{
 	while(<IN>){
 		chomp;
 		if($_=~/\>/){
-			my($new_asc)=($_=~/(\>.*)\_\d+?\_\d+?\_$/);
-			print OUT "$new_asc\n";
-			#print "$new_asc\n";
+			my($new_asc_front,$new_asc_rear)=($_=~/(\>.*)\:\d+?\-\d+\ (.*)/);
+			print OUT "$new_asc_front\ $new_asc_rear\n";
+			#print "$_\n";
 		}
 		else{
 			print OUT "$_\n";
