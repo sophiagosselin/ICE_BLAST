@@ -155,7 +155,7 @@ sub CORELOOP{
 
 	#extracts cluster centroids to be used as new queries
 	VERBOSEPRINT(1, "Identifying new query sequences.\n");
-  my(@new_query_asc) = GET_NEW_QUERIES($clustered_matches,@executed_qs);
+	my(@new_query_asc) = GET_NEW_QUERIES($clustered_matches,@executed_qs);
 
 	#extracts new query sequences if possible
 	my($new_infasta) = EXTRACT_FASTA($BLAST_matches,@new_query_asc);
@@ -237,7 +237,7 @@ sub PSIBLAST_WORKFLOW{
 	}
 
 	#extracts BLAST matches from the above searches
-  system("blastdbcmd -db $outdatabase -entry_batch $filtered_results -outfmt \"\%f\" > extracted_matches.$iteration");
+  	system("blastdbcmd -db $outdatabase -entry_batch $filtered_results -outfmt \"\%f\" > extracted_matches.$iteration");
 	move("$filtered_results","intermediates/$filtered_results");
 	if($domainspecific != 0){
 		REMOVE_BOUNDS("extracted_matches.$iteration");
@@ -259,7 +259,7 @@ sub FILTER_BLAST{
 		while(<$in>){
 			chomp;
 			if($domainspecific != 0){
-				my @readin_columns=split(/\ /, $_);
+				my @readin_columns=split(/\ /,$_);
 				$best_hits{$readin_columns[0]}=1;
 			}
 			else{
@@ -274,8 +274,8 @@ sub FILTER_BLAST{
 	open(OUT, ">> filtered_matches_iteration_$iteration.txt");
 	while(<BLAST>){
 		chomp;
-		my @output_columns = split(/\t/, $_);
-		next if($best_hits{$output_columns[0]});
+		my @output_columns = split(/\t/,$_);
+		next if(exists $best_hits{$output_columns[0]});
 		if($domainspecific != 0){
 			my ($strand,$site_start,$site_end,$match_length);
 			if(($output_columns[1]-$output_columns[2]) >=0){
