@@ -21,7 +21,7 @@ GetOptions ('i_l=s' => \$iterlimit, 'ds=s' =>\$domainspecific, 'v=i' =>\$verbosi
 #check for help call
 if($help==1){
 	die
-"ICE-BLAST v1.2.1\n
+"ICE-BLAST v1.2.2\n
 Comprehensive protein database search for divergent homologs.
 Gosselin S. Gogarten J.P. (In Preparation)
 Iterative Cluster Expansion BLAST; a tool for comprehensive seuquence extraction.
@@ -184,35 +184,35 @@ sub CORELOOP{
 sub OUTPUT{
 	#prints out all unique sequences found during the search
 	my %all_sequence_acs;
-  my @allmatches = glob "archive/*";
-  open(FINAL, "+> output/all_matches.fasta");
-  foreach my $file (@allmatches){
-  	my $skip=0;
-  	open(IN, "< $file");
-  	while(<IN>){
-  		if($_=~/\>/){
-  			$skip=0;
-  			if(exists $all_sequence_acs{$_}){
-  				$skip=1;
-  				next;
+	my @allmatches = glob "archive/*";
+	open(my $final, "+> output/all_matches.fasta");
+	foreach my $file (@allmatches){
+  		my $skip=0;
+  		open(my $in, "< $file");
+  		while(<$in>){
+  			if($_=~/\>/){
+  				$skip=0;
+  				if(exists $all_sequence_acs{$_}){
+  					$skip=1;
+  					next;
+	  			}
+  				else{
+  					$all_sequence_acs{$_}=0;
+  					print $final "$_";
+  				}
   			}
   			else{
-  				$all_sequence_acs{$_}=0;
-  				print FINAL "$_";
+  				if($skip==1){
+  					next;
+  				}
+  				else{
+  					print $final "$_";
+  				}
   			}
   		}
-  		else{
-  			if($skip==1){
-  				next;
-  			}
-  			else{
-  				print FINAL "$_";
-  			}
-  		}
+  		close $in;
   	}
-  	close IN;
-  }
-  close FINAL;
+	close $final;
 	VERBOSEPRINT(1, "ICE-BLAST run completed. Enjoy your sequences!\n");
 }
 
@@ -225,7 +225,7 @@ sub PSIBLAST_WORKFLOW{
 	#uses each input file as a query for PSI-BLAST search then filters results for next step
 	foreach my $infasta (@query_files){
 		VERBOSEPRINT(2, "Creating PSSM for $infasta.\n");
-	  system("psiblast -db $psidatabase -query $infasta -out temp.txt -out_pssm $infasta.pssm -inclusion_ethresh $eval -outfmt \"6 sseqid sstart send\" -num_iterations $iters -num_threads $threads -save_pssm_after_last_round -max_target_seqs 50000");
+	  	system("psiblast -db $psidatabase -query $infasta -out temp.txt -out_pssm $infasta.pssm -inclusion_ethresh $eval -outfmt \"6 sseqid sstart send\" -num_iterations $iters -num_threads $threads -save_pssm_after_last_round -max_target_seqs 50000");
 		VERBOSEPRINT(2, "Conducting psiBLAST search with PSSM.\n");
 		system("psiblast -db $outdatabase -in_pssm $infasta.pssm -out $infasta.blast6 -inclusion_ethresh $eval -evalue $eval -outfmt \"6 sseqid sstart send\" -num_threads $threads");
 		VERBOSEPRINT(2, "Filtering matches.\n");
@@ -270,9 +270,9 @@ sub FILTER_BLAST{
 	}
 	else{}
 
-	open(BLAST, "< $blast_results") or die VERBOSEPRINT(0, "Check your BLAST software and databases for issues. No BLAST output from search was found.\n");
-	open(OUT, ">> filtered_matches_iteration_$iteration.txt");
-	while(<BLAST>){
+	open(my $blast, "< $blast_results") or die VERBOSEPRINT(0, "Check your BLAST software and databases for issues. No BLAST output from search was found.\n");
+	open(my $out, ">> filtered_matches_iteration_$iteration.txt");
+	while(<$blast>){
 		chomp;
 		my @output_columns = split(/\t/,$_);
 		next if(exists $best_hits{$output_columns[0]});
@@ -288,17 +288,20 @@ sub FILTER_BLAST{
 				$site_start = $output_columns[1];
 				$site_end = $output_columns[2];
 			}
-			$match_length = $site_end-$site_start;
+			$match_length = abs($site_end-$site_start);
+			print "New Match found!!\n";
 			next if($match_length<$lowerbound || $match_length>$upperbound);
-			print OUT "$output_columns[0]\ $output_columns[1]\-$output_columns[2]\ $strand\n";
+			print "New match being incorporated!\n";
+			print $out "$output_columns[0]\ $output_columns[1]\-$output_columns[2]\ $strand\n";
+			print "$output_columns[0]\ $output_columns[1]\-$output_columns[2]\ $strand\n";
 		}
 		else{
-			print OUT "$output_columns[0]\n";
+			print $out "$output_columns[0]\n";
 		}
 		$best_hits{$output_columns[0]}=1;
 	}
-	close BLAST;
-	close OUT;
+	close $blast;
+	close $out;
 	return("filtered_matches_iteration_$iteration.txt");
 }
 
@@ -321,8 +324,8 @@ sub GET_NEW_QUERIES{
 	my $clustalout = shift;
 	my @previously_searched = @_;
 	my @cluster_seeds;
-	open(CLUST, "< $clustalout");
-	while(<CLUST>){
+	open(my $clust, "< $clustalout");
+	while(<$clust>){
 		if($_=~/^#/){
 			next;
 		}
@@ -340,7 +343,7 @@ sub GET_NEW_QUERIES{
 			next;
 		}
 	}
-	close CLUST;
+	close $clust;
 	move("$clustalout","intermediates/$clustalout");
 	return(@cluster_seeds);
 }
@@ -350,16 +353,16 @@ sub EXTRACT_FASTA{
 	#returns a fasta file with only the sequences in the array
 	my $infasta = shift;
 	my @seqstoget = @_;
-	open(IN, "< $infasta") or die VERBOSEPRINT(0, "No valid multiple fasta input sequence found $infasta. Please try running again, otherwise contact the developer.\n");
+	open(my $in, "< $infasta") or die VERBOSEPRINT(0, "No valid multiple fasta input sequence found $infasta. Please try running again, otherwise contact the developer.\n");
 	my ($toggle,%toggles);
-	open(OUT, "+> new_seeds_iteration_$iteration.fasta");
-	while(<IN>){
+	open(my $out, "+> new_seeds_iteration_$iteration.fasta");
+	while(<$in>){
 	  if($_=~/\>/){
 			$toggle = 0;
 			next if($toggles{$_});
 			my($fh)=($_=~/\>(.*?)\R/);
 			if(grep( /^to_run\/$fh\.fasta$/,@seqstoget)){
-				print OUT ">$fh\n";
+				print $out ">$fh\n";
 				$toggles{$_}=1;
 				$toggle = 1;
 			}
@@ -369,14 +372,15 @@ sub EXTRACT_FASTA{
 	  }
 	  else{
 			if($toggle eq 1){
-				print OUT $_;
+				print $out $_;
 			}
 			else{
 				next;
 			}
 	  }
 	}
-	close OUT;
+	close $out;
+	close $in;
 	move("$infasta","archive/$infasta");
 	return("new_seeds_iteration_$iteration.fasta");
 }
@@ -384,6 +388,7 @@ sub EXTRACT_FASTA{
 sub VERBOSEPRINT{
 	(my $verblevel, my $message) = @_;
 	if($verblevel <= $verbosity){
+		$| = 1;
 		print "$message\n";
 	}
 }
@@ -429,8 +434,8 @@ sub RECOVER{
 	my $domain_specific_toggle = shift;
 	my @unexecuted_queries_backup = glob "to_run/*.fasta";
 	my @executed_queries_backup;
-	open(BACKUP, "< backup.log");
-	while(<BACKUP>){
+	open(my $backup, "< backup.log");
+	while(<$backup>){
 		chomp;
 		if($domain_specific_toggle != 0){
 			my @split_recover = split(/\t/,$_);
@@ -442,7 +447,7 @@ sub RECOVER{
 			push(@executed_queries_backup,$_);
 		}
 	}
-	close BACKUP;
+	close $backup;
 	return(\@executed_queries_backup,\@unexecuted_queries_backup);
 }
 
@@ -450,31 +455,38 @@ sub BACKUP{
 	#subroutine that prints to a file, and keeps track of which sequences
 	#have been searched with, such that recovering a run is easier
 	my $searcedseq_backup = shift;
-	open(BACKUP, ">> backup.log");
-	print BACKUP "$searcedseq_backup";
-	close BACKUP;
+	open(my $backup, ">> backup.log");
+	print $backup "$searcedseq_backup";
+	close $backup;
 }
 
 sub SPLIT_FASTA{
 	#splits a multifasta file into several individual fasta files each containing
 	#1 sequence. Returns list of these files.
 	my $infasta_split = shift;
-	open(IN, "< $infasta_split");
 	my @fasta_files_split;
-	while(<IN>){
+	my $handle_holder = 0;
+
+	open(my $in, "< $infasta_split");
+	while(<$in>){
 	  if($_=~/\>/){
 			chomp;
+			if($handle_holder==0){}
+			else{
+				close $handle_holder;
+			}
 			my($fh)=($_=~/\>(.*)/);
-			close OUT;
-			open(OUT, "+> to_run/$fh.fasta") or die VERBOSEPRINT(0,"File $infasta_split at annotation line $_ was not properly formatted to create a new fasta file with. Check for unique characters, or windows end lines.\n");
-			print OUT ">$fh\n";
+			open(my $split_handle, "+> to_run/$fh.fasta") or die VERBOSEPRINT(0,"File $infasta_split at annotation line $_ was not properly formatted to create a new fasta file with. Check for unique characters, or windows end lines.\n");
+			$handle_holder = $split_handle;
+			print $handle_holder ">$fh\n";
 			push(@fasta_files_split,"to_run/$fh.fasta");
 	  }
 	  else{
-	    print OUT $_;
+	    print $handle_holder $_;
 	  }
 	}
-	close OUT;
+	close $handle_holder;
+	close $in;
 	move($infasta_split,"intermediates/$infasta_split");
 	return @fasta_files_split;
 }
@@ -483,19 +495,19 @@ sub STANDARDIZE_FASTA {
 	#removes most unique characters from annotation lines
 	#makes later searches and moving of files much easier.
 	my $fastafile = shift;
-	open(IN, "< $fastafile");
-	open(OUT, "+> temp.fasta");
-	while(<IN>){
+	open(my $in, "< $fastafile");
+	open(my $out, "+> temp.fasta");
+	while(<$in>){
 		if($_=~/\>/){
 			$_=~s/[\ \[\]\(\)\:\;\/\.\-\~\`\!\@\#\$\%\^\&\*\=\+\{\}\?]/\_/g;
-			print OUT $_;
+			print $out $_;
 		}
 		else{
-			print OUT $_;
+			print $out $_;
 		}
 	}
-	close IN;
-	close OUT;
+	close $in;
+	close $out;
 	unlink $fastafile;
 	rename "temp.fasta", $fastafile;
 }
@@ -507,8 +519,8 @@ sub DOMAIN_SPECIFIC_CUTOFF{
 	my $fastafile = shift;
 	my @lengths;
 	my $difference = my $sequence_length = 0;
-	open(IN, "< $fastafile");
-	while(<IN>){
+	open(my $in, "< $fastafile");
+	while(<$in>){
 		chomp;
 		if($_=~/\>/){
 			next if($sequence_length == 0);
@@ -519,8 +531,11 @@ sub DOMAIN_SPECIFIC_CUTOFF{
 			$sequence_length += length($_);
 		}
 	}
+	close $in;
 	push(@lengths,$sequence_length);
-	($upperbound,$lowerbound) = (sort {$a <=> $b} @lengths)[0,-1];
+	my @sorted = (sort {$a <=> $b} @lengths);
+	my $upperbound = $sorted[-1];
+	my $lowerbound = $sorted[0];
 	$upperbound += $lowerbound*$domainspecific;
 	$lowerbound -= $lowerbound*$domainspecific;
 	BACKUP("$upperbound\t$lowerbound\n");
@@ -529,7 +544,7 @@ sub DOMAIN_SPECIFIC_CUTOFF{
 sub UNIQUE_ARRAY{
 	#takes an array as input, returns an array with only unique values.
 	my %seen;
-  grep !$seen{$_}++, @_;
+  	grep !$seen{$_}++, @_;
 }
 
 sub REMOVE_BOUNDS{
@@ -537,21 +552,21 @@ sub REMOVE_BOUNDS{
 	#If this is not done, you can get 10 matches or more to the same sequence
 	#with slightly different bounds.
 	my $fasta_file = shift;
-	open(IN, "< $fasta_file");
-	open(OUT, "+> temp.fasta");
-	while(<IN>){
+	open(my $in, "< $fasta_file");
+	open(my $out, "+> temp.fasta");
+	while(<$in>){
 		chomp;
 		if($_=~/\>/){
 			my($new_asc_front,$new_asc_rear)=($_=~/(\>.*)\:\d+?\-\d+\ (.*)/);
-			print OUT "$new_asc_front\ $new_asc_rear\n";
+			print $out "$new_asc_front\ $new_asc_rear\n";
 			#print "$_\n";
 		}
 		else{
-			print OUT "$_\n";
+			print $out "$_\n";
 		}
 	}
-	close IN;
-	close OUT;
+	close $in;
+	close $out;
 	unlink $fasta_file;
 	rename "temp.fasta", $fasta_file;
 }
