@@ -289,11 +289,13 @@ sub FILTER_BLAST{
 				$site_end = $output_columns[2];
 			}
 			$match_length = abs($site_end-$site_start);
-			print "New Match found!!\n";
-			next if($match_length<$lowerbound || $match_length>$upperbound);
-			print "New match being incorporated!\n";
+			if($match_length<$lowerbound){
+				next;
+			}
+			if($match_length>$upperbound){
+				next;
+			}
 			print $out "$output_columns[0]\ $output_columns[1]\-$output_columns[2]\ $strand\n";
-			print "$output_columns[0]\ $output_columns[1]\-$output_columns[2]\ $strand\n";
 		}
 		else{
 			print $out "$output_columns[0]\n";
@@ -534,8 +536,8 @@ sub DOMAIN_SPECIFIC_CUTOFF{
 	close $in;
 	push(@lengths,$sequence_length);
 	my @sorted = (sort {$a <=> $b} @lengths);
-	my $upperbound = $sorted[-1];
-	my $lowerbound = $sorted[0];
+	$upperbound = $sorted[-1];
+	$lowerbound = $sorted[0];
 	$upperbound += $lowerbound*$domainspecific;
 	$lowerbound -= $lowerbound*$domainspecific;
 	BACKUP("$upperbound\t$lowerbound\n");
