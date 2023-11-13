@@ -8,12 +8,18 @@
 #SBATCH --qos=general
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=64gb
+#SBATCH --mem=20gb
 #SBATCH -t 100:00:00
 #SBATCH --mail-type=END
 #SBATCH --mail-user=YOUR_EMAIL_ADDRESS@WHATEVER.COM
 #SBATCH -o ice_blast_%j.out
 #SBATCH -e ice_blast_%j.err
+
+#NOTES: 
+#I have found that even large jobs tend to use only ~13-16gb of RAM.
+#I put 20 here to be safe, but you are likely fine with 16 for reasonably sized jobs
+#CPU count will use most of the threads given PSI-BLAST
+
 
 #dependencies
 module load blast/2.11.0
