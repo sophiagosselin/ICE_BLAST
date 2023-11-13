@@ -26,6 +26,7 @@ module load blast/2.11.0
 module load perl
 module load usearch
 
+
 #put paths for the databases you intend to use here.
 export BLASTDB=$BLASTDB:/home/FCAM/sgosselin/22_08_01_GPD_ice/database
 export BLASTDB=$BLASTDB:/home/FCAM/sgosselin/uniref50
@@ -33,6 +34,7 @@ export BLASTDB=$BLASTDB:/home/FCAM/sgosselin/uniref50
 #and you've already given it the full path to the DB try adding that path here!
 export PATH=~/home/FCAM/sgosselin/22_08_01_GPD_ice/database:$PATH
 export PATH=~/home/FCAM/sgosselin/uniref50:$PATH
+
 
 #refer to the perl script or -H for information on options invoked
 #make sure to include full path to databases, since ICE BLAST checks them for R/W privs
