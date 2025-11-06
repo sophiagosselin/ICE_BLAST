@@ -17,6 +17,7 @@ if($help==1){
     "This is a help message. God cannot help you now.";
 }
 
+########
 
 #Readin + write should be removed from subroutines and made separate methods.
 
