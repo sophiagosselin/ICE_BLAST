@@ -12,58 +12,95 @@ my $help=0;
 GetOptions ('hen_in=s' => \$hen_input_file, 'splice_in=s' => \$splice_input_file, 
             'help+' => \$help, 'h+' => \$help);
 
+#maybe writes a help message *quelle surprise*
 if($help==1){
     print 
-    "This is a help message. God cannot help you now.";
+    "If god exists then they are a spiteful, uncaring, and mercilless god. 
+    They will not help you.";
 }
-
-########
-
-#Readin + write should be removed from subroutines and made separate methods.
-
 
 MAIN();
 
 sub MAIN {
 
     INITIALIZE();
-    my($hen_input_dataref) = READIN_FASTA($hen_input_file);
-    my($splice_input_dataref) = READIN_FASTA($splice_input_file);
+
+    #readin fasta inputs
+    my($hen_indata_ref) = READIN_FASTA($hen_input_file);
+    my($splice_indata_ref) = READIN_FASTA($splice_input_file);
+
+    #standardize data
+    my($hen_indata_std_ref) = STD_FASTA($hen_indata_ref);
+    my($splice_indata_std_ref) = STD_FASTA($splice_indata_ref);
 
 
 }
 
-sub MAKE_DATA_STRUCTURE {
-    #checks if directories exists. If not, creates it.
-	my @dirs=["run_dir"];
-    foreach my $directory (){
-		unless(-d $directory){
-			mkdir($directory);
+sub INITIALIZE {
+    #put any one time startup stuff in here!
+    
+    #make directory structure:
+    my @dirs=["run_dir"];
+    foreach my $dir (@dirs){
+		unless(-d $dir){
+			mkdir($dir);
 		}
 	}
+
+    #
 }
 
 sub READIN_FASTA {
+    #inputs - fasta file path
+    #outputs - hash with acession lines as keys, seqs as data
     my $path = shift;
-    my %data;
+    my %outdata;
     my $key;
-    open(my $fh, "<" $path) || die "Cannot open $path: $@";
-    while <$fh> {
-        chomp;
-        if($_=~/\>/){
-            $key=$_;
+    my(@indata)=READIN_LINES($path);
+    #parse fasta data format
+    foreach my $line (@indata){
+        if($line=~/\>/){
+            $key=$line;
         }
         else{
-            $data{$key}=$_;
+            $data{$key}=$line;
         }
-    }
-    close $fh;
-    return(\%data);
+    } 
+    return(\%outdata);
 }
 
-sub WRITE_FASTA {
+sub READIN_LINES {
+    #readin file, return data line by line in array
     my $path = shift;
-    my 
+    open(my $fh, "<" $path) || die "Cannot open $path: $@";
+    chomp (my @outdata = <$fh>);
+    close $fh;
+    return(@outdata);
+}
+
+sub WRITE_LINES {
+    #inputs - array of lines to print (no EOL), and a path
+    #outputs - prints lines to file.
+    my $path = shift;
+    my @lines = @_;
+    open(my $fh, "+>" $path) || die "Cannot open $path: $@";
+    print $fh join ("\n", @lines); #this might not work as intented :)
+    close $fh;
+}
+
+sub STD_FASTA {
+    #inputs - fasta data in hash
+    #outputs - fasta data in hash w/o unique chars in annotation line
+	my(%fasta_indata) = %{my $ref = shift};
+	my %fasta_outdata;
+
+    foreach my $key (keys %fasta_indata){
+        my $keyholder = $key;
+        $key=~s/[\ \[\]\(\)\:\;\/\.\-\~\`\!\@\#\$\%\^\&\*\=\+\{\}\?\'\"]/\_/g;
+        $fasta_outdata{$key}=$fasta_indata{$keyholder};
+    }
+
+    return(\%fasta_outdata);
 }
 
 sub TBLASTN {
