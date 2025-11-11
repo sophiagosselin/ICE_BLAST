@@ -42,8 +42,8 @@ sub MAIN {
     my($splice_indata_std_ref)=STD_FASTA($splice_indata_ref);
 
     #write std data to file
-    my($hen_std_fp)=WRITE_FASTA($hen_indata_std_ref, "FILE PATH");
-    my($splice_std_fp)=WRITE_FASTA($splice_indata_std_ref, "FILE PATH");
+    my($hen_std_fp)=WRITE_FASTA($hen_indata_std_ref, "run_dir/hen_standardized.fna");
+    my($splice_std_fp)=WRITE_FASTA($splice_indata_std_ref, "run_dir/splice_standardized.fna");
 
     #run tBLASTn 
     my($hen_blast_fp)=TBLASTN($hen_std_fp, $nt_blastdb_fp);
@@ -54,15 +54,22 @@ sub MAIN {
     my($splice_blast_data_ref)=PARSE_BLAST($splice_blast_fp);
 
     #check for overlap
-    FIND_OVERLAP($hen_blast_data_ref,$splice_blast_data_ref);
+    my($overlap_ref)=FIND_OVERLAP($hen_blast_data_ref,$splice_blast_data_ref);
 
+    #print overlap data to table
+    WRITE_OVERLAP($overlap_ref, "outputs/overlap_table.csv");
+
+    #extract matches from overlap data
+    EXTRACT_OVERLAP_REGION_SEQS($overlap_ref,$hen_blast_data_ref,$splice_blast_data_ref);
+
+    #print fasta of contiguous regions
 }
 
 sub INITIALIZE {
     #put any one time startup stuff in here!
     
     #make directory structure:
-    my @dirs=["run_dir"];
+    my @dirs=["run_dir","outputs"];
     foreach my $dir (@dirs){
 		unless(-d $dir){
 			mkdir($dir);
@@ -169,6 +176,7 @@ sub PARSE_BLAST {
     my $blastin_fp=shift;
     my %blast_data_out;
     my $skip_trigger=0;
+    my $counter=0; #to ensure every match has a unique ID # in-case of multiple matches to same contig/genome
 
     my(@blast_data_in)=READIN($blastin_fp);
     foreach my $line (@blast_data_in){
@@ -177,7 +185,7 @@ sub PARSE_BLAST {
         
         #check if match is contained within any current matches
         #for positive strand matches
-        if($fields[3]="plus"){
+        if($fields[3] eq "plus"){
             foreach my $seqkey (keys %blast_data_out){
                 if($blast_data_out{$seqkey}{"strand"} eq "positive"){
                     if($fields[1]>=$blast_data_out{$fields[0]}{"start"} &&
@@ -187,13 +195,17 @@ sub PARSE_BLAST {
                         $skip_trigger=1;
                         last; 
                     }
-                    else{ next; }
+                    else{
+                        next;
+                    }
                 }
-                else{ next; }
+                else{
+                    next;
+                }
             }                    
         }
         #for negative strand matches
-        elsif($fields[3]="negative"){
+        elsif($fields[3] eq "negative"){
             foreach my $seqkey (keys %blast_data_out){
                 if($blast_data_out{$seqkey}{"strand"} eq "negative"){
                     if($fields[1]<=$blast_data_out{$fields[0]}{"start"} &&
@@ -203,10 +215,18 @@ sub PARSE_BLAST {
                         $skip_trigger=1;
                         last; 
                     }
-                    else{ next; }
+                    else{
+                        next;
+                    }
                 }
-                else{ next; }
+                else{
+                    next;
+                }
             }
+        }
+
+        else{
+            PRINT_TO_SCREEN("ERROR");
         }
 
         #check if match was found already
@@ -216,9 +236,11 @@ sub PARSE_BLAST {
         }
 
         #input to hash
+        my $unique_id="$fields[0]\_counter\_$counter";
         $blast_data_out{$fields[0]}{"start"}=$fields[1];
         $blast_data_out{$fields[0]}{"end"}=$fields[2];
         $blast_data_out{$fields[0]}{"strand"}=$fields[3];
+        $counter++;
     }
 
     return(\%blast_data_out);
@@ -229,46 +251,103 @@ sub FIND_OVERLAP {
     #outputs - table of matches (using splice bounds) where HEN match was within splice match
     my(%hen_blastin)=%{my $ref1=shift};
     my(%splice_blastin)=%{my $ref2=shift};
+    my %overlap_matches;
 
     foreach my $hen_seq (keys %hen_blastin){
         #check for matches on either side
+        my $match_start = my $match_end = "NA";
+
         foreach my $splice_seq (keys %splice_blastin){
 
-            if($splice_blastin{$splice_seq}{"start"} <= $hen_blastin{$hen_seq}{"start"} 
-                <= $splice_blastin{$splice_seq}{"end"}){
+            #use the strand to determine which ends to add unto
+            my($upperbound,$lowerbound);
 
-            }
-            elsif($splice_blastin{$splice_seq}{"start"} >= $hen_blastin{$hen_seq}{"start"} 
-                >= $splice_blastin{$splice_seq}{"end"}){
+            if($splice_blastin{$splice_seq}{"strand"} eq "positive"){
+                $upperbound = ($splice_blastin{$splice_seq}{"start"})-$ovrlp_tolerance;
+                $lowerbound = ($splice_blastin{$splice_seq}{"end"})+$ovrlp_tolerance;
 
+                #then check if HEN is within the tolerance bounded range
+                if($upperbound <= $hen_blastin{$hen_seq}{"start"} <= $lowerbound){
+                    $match_start=$splice_seq; 
+                }
+                elsif($upperbound <= $hen_blastin{$hen_seq}{"end"} <= $lowerbound){
+                    $match_end=$splice_seq;
+                }
             }
-            #needs to check if HEN start bound contained, or w/in 100 of
-            #any splice match start OR end
             
-            #then check if HEN end bound countained, or w/in 100 
-            #of any splice match start or end
-        
-            #then ONLY IF both above are true, save the three matches and record them
+            elsif($splice_blastin{$splice_seq}{"strand"} eq "negtive"){
+                $upperbound = ($splice_blastin{$splice_seq}{"start"})+$ovrlp_tolerance;
+                $lowerbound = ($splice_blastin{$splice_seq}{"end"})-$ovrlp_tolerance;
 
-            #mark whether hen is on sans or antisans strand relative to splice match 
-
-
+                #then check if HEN is within the tolerance bounded range
+                if($lowerbound <= $hen_blastin{$hen_seq}{"start"} <= $upperbound){
+                    $match_start=$splice_seq;
+                }
+                elsif($lowerbound <= $hen_blastin{$hen_seq}{"end"} <= $upperbound){
+                    $match_end=$splice_seq;
+                }
+            }
+            else{
+                #there was no match, skip to next!
+                next;
+            }
+            #if a match was found above, record it!
+            #need to check if a match was found to a start region and an end region
+            if($match_end ne "NA" && $match_start ne "NA"){
+                $overlap_matches{$hen_seq}{"sb"}=$match_start;
+                $overlap_matches{$hen_seq}{"eb"}=$match_end;
+                last;
+            }
+            else{
+                next;
+            }
+        }
+        if($match_end ne "NA" || $match_start ne "NA"){
+            $overlap_matches{$hen_seq}{"sb"}=$match_start;
+            $overlap_matches{$hen_seq}{"eb"}=$match_end;
+        }
+        else{
+            next;
         }
     }
+    return(\%overlap_matches);
 }
 
-sub EXTRACT_SEQ_MATCHES {
-    #inputs - blast match table
-    #outputs - fasta format sequences of matches
+sub WRITE_OVERLAP {
+    my(%overlap_data)=%{my $hashref = shift};
+    my $filepath = shift;
+    my @toprint;
+
+    foreach my $hen_key (keys %overlap_data){
+        my $line = "$hen_key\t$overlap_data{$hen_key}{'sb'}\t$overlap_data{$hen_key}{'eb'}";
+        push(@toprint,$line);
+    }
+
+    WRITE_LINES($filepath,@toprint);
 }
 
-sub UCLUST {
-    #inputs - fasta format file
-    #outputs - uclust file paths
+sub EXTRACT_OVERLAP_REGION_SEQS {
+    #data structure is:
+    #primary key -> HEN match
+    #secondary key 1 "sb" -> splice match for start of HEN
+    #secondary key 2 "eb" -> splice match for end of HEN
+    my(%overlap_data)=%{my $ref1 = shift};
+
+    #data structure is:
+    #primary key -> HEN OR SPLICE match accession
+    #secondary keys "start" and "end" -> start or end of match respectively
+    #secondary keys "strand" -> positive or negative
+    my(%hen_blastdata)=%{my $ref2 = shift};
+    my(%splice_blastdata)=%{my $ref3 = shift};
+
+    
+
+
+
 }
 
-sub GET_CENTROIDS {
-    #inputs - uclust file path, fasta format seq file
-    #outputs - fasta format file with centroids only
-
+sub PRINT_TO_SCREEN {
+    #stuff
+    my $message = shift;
+    print "$message";
 }
