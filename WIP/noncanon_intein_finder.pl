@@ -16,8 +16,8 @@ my $thd=1; #default
 my $blast_eval="1E-20"; #default
 
 #getoptions
-GetOptions ('hen_in=s' => \$hen_in_fp, 'splice_in=s' => \$splice_in_fp, 
-            'nt_blastdb_fp=s' => \$nt_blastdb_fp,'help+' => \$help, 'h+' => \$help,
+GetOptions ('hen=s' => \$hen_in_fp, 'splice=s' => \$splice_in_fp, 
+            'blastdb=s' => \$nt_blastdb_fp,'help+' => \$help, 'h+' => \$help,
             'thd=i' => \$thd, 'eval=s' => \$blast_eval, 'ovrlp=i' => \$ovrlp_tolerance);
 
 #maybe writes a help message *quelle surprise*
@@ -54,13 +54,13 @@ sub MAIN {
     my($splice_blast_data_ref)=PARSE_BLAST($splice_blast_fp);
 
     #check for overlap
-    my($overlap_ref)=FIND_OVERLAP($hen_blast_data_ref,$splice_blast_data_ref);
+    my($overlap_ref)=FIND_OVERLAP_MATCHES($hen_blast_data_ref,$splice_blast_data_ref);
 
     #print overlap data to table
     WRITE_OVERLAP($overlap_ref, "outputs/overlap_table.csv");
 
     #extract matches from overlap data
-    EXTRACT_OVERLAP_REGION_SEQS($overlap_ref,$hen_blast_data_ref,$splice_blast_data_ref);
+    EXTRACT_OVERLAP_SEQS($overlap_ref,$hen_blast_data_ref,$splice_blast_data_ref);
 
     #print fasta of contiguous regions
 }
@@ -159,7 +159,7 @@ sub TBLASTN {
     my($blast_results_fp)=($db_fp=~/(.*?)\..*/)."\.blast"; #this might not work 
 
     #run tBLASTn
-    system("tBLASTn -db $db_fp -query $fasta_fp -out $blast_results_fp 
+    system("tblastn -db $db_fp -query $fasta_fp -out $blast_results_fp 
             -inclusion_ethresh $blast_eval -outfmt \"6 sseqid sstart send sstrand\" 
             -thd $thd");
 
@@ -178,7 +178,7 @@ sub PARSE_BLAST {
     my $skip_trigger=0;
     my $counter=0; #to ensure every match has a unique ID # in-case of multiple matches to same contig/genome
 
-    my(@blast_data_in)=READIN($blastin_fp);
+    my(@blast_data_in)=READIN_LINES($blastin_fp);
     foreach my $line (@blast_data_in){
         #fields are: 0->seqid, 1->match start 2->match end 3->strand
         my(@fields)= split /\t/, $line;
@@ -246,7 +246,7 @@ sub PARSE_BLAST {
     return(\%blast_data_out);
 }
 
-sub FIND_OVERLAP {
+sub FIND_OVERLAP_MATCHES {
     #inputs - filtered match tables from HEN and splice searches
     #outputs - table of matches (using splice bounds) where HEN match was within splice match
     my(%hen_blastin)=%{my $ref1=shift};
@@ -326,7 +326,7 @@ sub WRITE_OVERLAP {
     WRITE_LINES($filepath,@toprint);
 }
 
-sub EXTRACT_OVERLAP_REGION_SEQS {
+sub EXTRACT_OVERLAP_SEQS {
     #data structure is:
     #primary key -> HEN match
     #secondary key 1 "sb" -> splice match for start of HEN
@@ -340,10 +340,49 @@ sub EXTRACT_OVERLAP_REGION_SEQS {
     my(%hen_blastdata)=%{my $ref2 = shift};
     my(%splice_blastdata)=%{my $ref3 = shift};
 
-    
+    my %sequences_to_extract;
 
+    foreach my $henkey (keys %overlap_data){
+        my($endbound_start,$endbound_end,$startbound_start,$startbound_end);
+        
+        #set bounds to NA for eiter bound if applicable
+        if($overlap_data{$henkey}{"eb"} eq "NA" || $overlap_data{$henkey}{"sb"} eq "NA"){
+            
+            #Not sure what the alt process will look like...
+            $endbound_end = $endbound_start = "NA";
+            $startbound_end = $startbound_start = "NA";
+        }
 
+        else{
+            #get coordinates for start and end of splice domain matches
+            my $splice_start = $overlap_data{$henkey}{"sb"};
+            $startbound_start = $splice_blastdata{$splice_start}{"start"};
+            $startbound_end = $splice_blastdata{$splice_start}{"end"};
+            my $splice_end = $overlap_data{$henkey}{"eb"};
+            $endbound_start = $splice_blastdata{$splice_end}{"start"};
+            $endbound_end = $splice_blastdata{$splice_end}{"end"};
 
+            #now with your coordinates, find the bounds to extract
+            my @unsorted = [$startbound_end,$startbound_start,$endbound_end,$endbound_start];
+            my @sorted = sort { $a <=> $b } @unsorted;
+            my $seqstart=shift(@sorted);
+            my $seqend=pop(@sorted);
+
+            #assign to hash
+            $sequences_to_extract{$henkey}{"start"}=$seqstart;
+            $sequences_to_extract{$henkey}{"end"}=$seqend;
+        }
+    }
+    #now print matches to file
+    my @lines;
+    foreach my $seqs (keys %sequences_to_extract){
+        my($match_no_counter)=($seqs=~/(.*?)\_counter\_.*/);
+        push(@lines,"$match_no_counter\t$sequences_to_extract{$seqs}{'start'}\t$sequences_to_extract{$seqs}{'end'}");
+    }
+    WRITE_LINES("seq_table_for_cmd.txt",@lines);
+
+    #now send to be extracted using blast
+    system("blastdbcmd -db $nt_blastdb_fp -entry_batch seq_table_for_cmd.txt -outfmt \"\%f\" > extracted_matches.fna");
 }
 
 sub PRINT_TO_SCREEN {
