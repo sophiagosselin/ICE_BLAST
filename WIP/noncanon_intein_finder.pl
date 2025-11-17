@@ -31,7 +31,7 @@ MAIN();
 
 sub MAIN {
 
-    INITIALIZE();
+    INITIALIZE("run_dir","outputs");
 
     #readin fasta inputs
     my($hen_indata_ref)=READIN_FASTA($hen_in_fp);
@@ -46,8 +46,8 @@ sub MAIN {
     my($splice_std_fp)=WRITE_FASTA($splice_indata_std_ref, "run_dir/splice_standardized.fna");
 
     #run tBLASTn 
-    my($hen_blast_fp)=TBLASTN($hen_std_fp, $nt_blastdb_fp);
-    my($splice_blast_fp)=TBLASTN($splice_std_fp, $nt_blastdb_fp);
+    my($hen_blast_fp)=TBLASTX($hen_std_fp, $nt_blastdb_fp, "run_dir/hen_blast.txt");
+    my($splice_blast_fp)=TBLASTX($splice_std_fp, $nt_blastdb_fp, "run_dir/splice_blast.txt");
 
     #parse BLAST results
     my($hen_blast_data_ref)=PARSE_BLAST($hen_blast_fp);
@@ -67,16 +67,12 @@ sub MAIN {
 
 sub INITIALIZE {
     #put any one time startup stuff in here!
-    
     #make directory structure:
-    my @dirs=["run_dir","outputs"];
-    foreach my $dir (@dirs){
+    foreach my $dir (@_){
 		unless(-d $dir){
 			mkdir($dir);
 		}
 	}
-
-    #
 }
 
 sub READIN_FASTA {
@@ -92,7 +88,7 @@ sub READIN_FASTA {
             $key=$line;
         }
         else{
-            $outdata{$key}=$line;
+            $outdata{$key}.=$line;
         }
     } 
     return(\%outdata);
@@ -102,7 +98,11 @@ sub READIN_LINES {
     #readin file, return data line by line in array
     my $path=shift;
     open(my $fh, "< $path") || die "Cannot open $path: $@";
-    chomp (my @outdata = <$fh>);
+    my @outdata;
+    while(<$fh>){
+        chomp;
+        push(@outdata,$_);
+    }
     close $fh;
     return(@outdata);
 }
@@ -150,18 +150,18 @@ sub STD_FASTA {
     return(\%fasta_outdata);
 }
 
-sub TBLASTN {
+sub TBLASTX {
     #inputs - fasta file, databse path
     #outputs - blast hits table
 
     my $fasta_fp=shift;
     my $db_fp=shift;
-    my($blast_results_fp)=($db_fp=~/(.*?)\..*/)."\.blast"; #this might not work 
+    my $blast_results_fp = shift;
 
     #run tBLASTn
-    system("tblastn -db $db_fp -query $fasta_fp -out $blast_results_fp 
-            -inclusion_ethresh $blast_eval -outfmt \"6 sseqid sstart send sstrand\" 
-            -thd $thd");
+    system("tblastx -db $db_fp -query $fasta_fp -out $blast_results_fp 
+            -evalue $blast_eval -outfmt \"6 sseqid sstart send sstrand\" 
+            -num_threads $thd");
 
     return ($blast_results_fp)
 }
@@ -183,50 +183,27 @@ sub PARSE_BLAST {
         #fields are: 0->seqid, 1->match start 2->match end 3->strand
         my(@fields)= split /\t/, $line;
         
-        #check if match is contained within any current matches
-        #for positive strand matches
-        if($fields[3] eq "plus"){
-            foreach my $seqkey (keys %blast_data_out){
-                if($blast_data_out{$seqkey}{"strand"} eq "positive"){
-                    if($fields[1]>=$blast_data_out{$fields[0]}{"start"} &&
-                       $fields[2]<=$blast_data_out{$fields[0]}{"end"}){
-                        
-                        #match is contained within an already existing match. Skip.
-                        $skip_trigger=1;
-                        last; 
-                    }
-                    else{
-                        next;
-                    }
-                }
-                else{
-                    next;
-                }
-            }                    
-        }
-        #for negative strand matches
-        elsif($fields[3] eq "negative"){
-            foreach my $seqkey (keys %blast_data_out){
-                if($blast_data_out{$seqkey}{"strand"} eq "negative"){
-                    if($fields[1]<=$blast_data_out{$fields[0]}{"start"} &&
-                       $fields[2]>=$blast_data_out{$fields[0]}{"end"}){
-                        
-                        #match is contained within an already existing match. Skip.
-                        $skip_trigger=1;
-                        last; 
-                    }
-                    else{
-                        next;
-                    }
-                }
-                else{
-                    next;
-                }
-            }
-        }
+        foreach my $seqkey (keys %blast_data_out){
+            #check if current match is contained within existing match
+            #first check if generic key matches current match
+            my($generickey)=($seqkey=~/(.*?)\_counter\_/);
+            next if($generickey ne $fields[0]);
 
-        else{
-            PRINT_TO_SCREEN("ERROR");
+            if($fields[1]>=$blast_data_out{$seqkey}{"start"} &&
+               $fields[2]<=$blast_data_out{$seqkey}{"end"}){
+
+                $skip_trigger=1;
+                last; 
+            }
+            elsif($fields[1]<=$blast_data_out{$seqkey}{"start"} &&
+                  $fields[2]>=$blast_data_out{$seqkey}{"end"}){
+                        
+                $skip_trigger=1;
+                last; 
+            }
+            else{
+                next;
+            }
         }
 
         #check if match was found already
@@ -237,11 +214,19 @@ sub PARSE_BLAST {
 
         #input to hash
         my $unique_id="$fields[0]\_counter\_$counter";
-        $blast_data_out{$fields[0]}{"start"}=$fields[1];
-        $blast_data_out{$fields[0]}{"end"}=$fields[2];
-        $blast_data_out{$fields[0]}{"strand"}=$fields[3];
+        $blast_data_out{$unique_id}{"start"}=$fields[1];
+        $blast_data_out{$unique_id}{"end"}=$fields[2];
+        $blast_data_out{$unique_id}{"strand"}=$fields[3];
         $counter++;
     }
+
+    #print data to file for debugging
+    my @lines;
+    foreach my $seqkey (keys %blast_data_out){
+        my $printline = "$seqkey\t$blast_data_out{$seqkey}{'start'}\t$blast_data_out{$seqkey}{'end'}\t$blast_data_out{$seqkey}{'strand'}";
+        push(@lines,$printline);
+    }
+    WRITE_LINES("$blastin_fp.parsed",@lines);
 
     return(\%blast_data_out);
 }
@@ -259,10 +244,15 @@ sub FIND_OVERLAP_MATCHES {
 
         foreach my $splice_seq (keys %splice_blastin){
 
+            #skip if matches are from 2 different genomes!
+            my($hen_nocounter)=($hen_seq=~/(.*?)\_counter\_.*/);
+            my($splice_nocounter)=($splice_seq=~/(.*?)\_counter\_.*/);
+            next if($hen_nocounter ne $splice_nocounter);
+
             #use the strand to determine which ends to add unto
             my($upperbound,$lowerbound);
 
-            if($splice_blastin{$splice_seq}{"strand"} eq "positive"){
+            if($splice_blastin{$splice_seq}{"strand"} eq "plus"){
                 $upperbound = ($splice_blastin{$splice_seq}{"start"})-$ovrlp_tolerance;
                 $lowerbound = ($splice_blastin{$splice_seq}{"end"})+$ovrlp_tolerance;
 
@@ -275,7 +265,7 @@ sub FIND_OVERLAP_MATCHES {
                 }
             }
             
-            elsif($splice_blastin{$splice_seq}{"strand"} eq "negtive"){
+            elsif($splice_blastin{$splice_seq}{"strand"} eq "minus"){
                 $upperbound = ($splice_blastin{$splice_seq}{"start"})+$ovrlp_tolerance;
                 $lowerbound = ($splice_blastin{$splice_seq}{"end"})-$ovrlp_tolerance;
 
@@ -302,6 +292,9 @@ sub FIND_OVERLAP_MATCHES {
                 next;
             }
         }
+
+        #check if there is still an NA match to only 1 of the bounds
+        #keep those matches
         if($match_end ne "NA" || $match_start ne "NA"){
             $overlap_matches{$hen_seq}{"sb"}=$match_start;
             $overlap_matches{$hen_seq}{"eb"}=$match_end;
@@ -327,16 +320,8 @@ sub WRITE_OVERLAP {
 }
 
 sub EXTRACT_OVERLAP_SEQS {
-    #data structure is:
-    #primary key -> HEN match
-    #secondary key 1 "sb" -> splice match for start of HEN
-    #secondary key 2 "eb" -> splice match for end of HEN
-    my(%overlap_data)=%{my $ref1 = shift};
 
-    #data structure is:
-    #primary key -> HEN OR SPLICE match accession
-    #secondary keys "start" and "end" -> start or end of match respectively
-    #secondary keys "strand" -> positive or negative
+    my(%overlap_data)=%{my $ref1 = shift};
     my(%hen_blastdata)=%{my $ref2 = shift};
     my(%splice_blastdata)=%{my $ref3 = shift};
 
@@ -344,40 +329,50 @@ sub EXTRACT_OVERLAP_SEQS {
 
     foreach my $henkey (keys %overlap_data){
         my($endbound_start,$endbound_end,$startbound_start,$startbound_end);
-        
-        #set bounds to NA for eiter bound if applicable
-        if($overlap_data{$henkey}{"eb"} eq "NA" || $overlap_data{$henkey}{"sb"} eq "NA"){
-            
-            #Not sure what the alt process will look like...
-            $endbound_end = $endbound_start = "NA";
-            $startbound_end = $startbound_start = "NA";
-        }
 
+        #get coordinates for start and end of splice domain matches
+        my $splice_start = $overlap_data{$henkey}{"sb"};
+        if($splice_start eq "NA"){
+            $startbound_start = $hen_blastdata{$henkey}{"start"};
+            $startbound_end= $hen_blastdata{$henkey}{"end"};
+        }
         else{
-            #get coordinates for start and end of splice domain matches
-            my $splice_start = $overlap_data{$henkey}{"sb"};
             $startbound_start = $splice_blastdata{$splice_start}{"start"};
             $startbound_end = $splice_blastdata{$splice_start}{"end"};
-            my $splice_end = $overlap_data{$henkey}{"eb"};
+        }
+        my $splice_end = $overlap_data{$henkey}{"eb"};
+        if($splice_end eq "NA"){
+            $endbound_start = $hen_blastdata{$henkey}{"start"};
+            $endbound_end= $hen_blastdata{$henkey}{"end"};
+        }
+        else{
             $endbound_start = $splice_blastdata{$splice_end}{"start"};
             $endbound_end = $splice_blastdata{$splice_end}{"end"};
-
-            #now with your coordinates, find the bounds to extract
-            my @unsorted = [$startbound_end,$startbound_start,$endbound_end,$endbound_start];
-            my @sorted = sort { $a <=> $b } @unsorted;
-            my $seqstart=shift(@sorted);
-            my $seqend=pop(@sorted);
-
-            #assign to hash
-            $sequences_to_extract{$henkey}{"start"}=$seqstart;
-            $sequences_to_extract{$henkey}{"end"}=$seqend;
         }
+
+        #print "Henkey:$henkey\tStartbound_start: $startbound_start\tStartbound_end: $startbound_end\tEndbound_start: $endbound_start\tEndbound_end: $endbound_end\n";
+        
+        #now with your coordinates, find the bounds to extract
+        my @unsorted;
+        push(@unsorted, $startbound_end,$startbound_start,$endbound_end,$endbound_start);
+        my @sorted = sort { $a <=> $b } @unsorted;
+        my $seqstart=shift(@sorted);
+        my $seqend=pop(@sorted);
+
+        #print "Seqstart: $seqstart\tSeqend: $seqend\n";
+
+        #assign to hash
+        $sequences_to_extract{$henkey}{"start"}=$seqstart;
+        $sequences_to_extract{$henkey}{"end"}=$seqend;
     }
+
     #now print matches to file
     my @lines;
     foreach my $seqs (keys %sequences_to_extract){
         my($match_no_counter)=($seqs=~/(.*?)\_counter\_.*/);
-        push(@lines,"$match_no_counter\t$sequences_to_extract{$seqs}{'start'}\t$sequences_to_extract{$seqs}{'end'}");
+        my $line = "$match_no_counter\ $sequences_to_extract{$seqs}{'start'}\-$sequences_to_extract{$seqs}{'end'}\ $hen_blastdata{$seqs}{'strand'}";
+        print "$match_no_counter\ $sequences_to_extract{$seqs}{'start'}\-$sequences_to_extract{$seqs}{'end'}\ $hen_blastdata{$seqs}{'strand'}\n";
+        push(@lines,$line);
     }
     WRITE_LINES("seq_table_for_cmd.txt",@lines);
 
