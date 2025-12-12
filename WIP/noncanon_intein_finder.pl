@@ -12,8 +12,13 @@ my ($hen_in_fp, #HEN domain nucleotide sequences (fasta format)
     );
 my $help=0;
 my $ovrlp_tolerance=500; #default
-my $thd=1; #default
+my $thd=4; #default
 my $blast_eval="1E-20"; #default
+
+#for testing purposes
+$hen_in_fp="hen.fna";
+$splice_in_fp="splice.fna";
+$nt_blastdb_fp="phagesdb/phagesdb.fna";
 
 #getoptions
 GetOptions ('hen=s' => \$hen_in_fp, 'splice=s' => \$splice_in_fp, 
@@ -171,100 +176,23 @@ sub PARSE_BLAST {
     #removes redundant overlapping matches
     #outputs - filtered and parsed blast data 
 
-    #NOTE: Might need to add filter to remove new matches that contain old matches
-
-
-    #TODO: Range filtering needs to be done recursively 
-    #until there is no longer any matches overlapping eachother
-
     my $blastin_fp=shift;
-    my %blast_data_out;
-    my $newmatch_toggle=0;
-    my $bettermatch_toggle=0;
-    my $keytodelete;
-    my $counter=0; #to ensure every match has a unique ID # in-case of multiple matches to same contig/genome
-
+    my %blast_data_in;
+    my $counter=0; #uinque ID for seqs
+    
     my(@blast_data_in)=READIN_LINES($blastin_fp);
     foreach my $line (@blast_data_in){
         #fields are: 0->seqid, 1->match start 2->match end 3->strand
         my(@fields)= split /\t/, $line;
-        
-        foreach my $seqkey (keys %blast_data_out){
-            #check if current match is contained within existing match
-            #first check if generic key matches current match
-            my($generickey)=($seqkey=~/(.*?)\_counter\_/);
-            next if($generickey ne $fields[0]);
-
-            #get a range for the new and old match being compared
-            my @newrange=($fields[1]..$fields[2]);
-            my @oldrange=($blast_data_out{$seqkey}{"start"}..$blast_data_out{$seqkey}{"end"});
-
-            #check if there is overlap between the ranges            
-            foreach my $i (sort @newrange){
-                foreach my $j (sort @oldrange){
-                    if($i==$j){
-                        #debug
-                        #print "I:$i J:$j\n";
-                        $bettermatch_toggle=1;
-                        last;
-                    }
-                    else{
-                        next;
-                    }
-                }
-
-                if($bettermatch_toggle==1){
-                    last;
-                }
-                else{
-                    next;
-                }
-            }
-
-            #if match was found to contain overlap with another match, find the new bounds to save
-            if($bettermatch_toggle==1){
-                my @unsorted;
-                push(@unsorted,$fields[1],$fields[2],$blast_data_out{$seqkey}{"start"},$blast_data_out{$seqkey}{"end"});
-                my @sorted = sort { $a <=> $b } @unsorted;
-                my $start=shift(@sorted);
-                my $end=pop(@sorted);
-
-                #save new bounds.
-                my $unique_id="$fields[0]\_counter\_$counter";
-                $blast_data_out{$unique_id}{"start"}=$start;
-                $blast_data_out{$unique_id}{"end"}=$end;
-                $blast_data_out{$unique_id}{"strand"}=$fields[3];
-
-                #debug
-                print "Old Match:\t$seqkey\t$blast_data_out{$seqkey}{'start'}\t$blast_data_out{$seqkey}{'end'}\nBetter Match:\t$unique_id\t$start\t$end\n";
-
-                #cleanup and remove old match
-                $counter++;
-                $bettermatch_toggle=0;
-                $newmatch_toggle=1;
-                $keytodelete=$seqkey;
-                last;
-            }
-            else{
-                next;
-            }
-        }
-
-        #check if this is a brand new match
-        #input to hash
-        if($newmatch_toggle==0){
-            my $unique_id="$fields[0]\_counter\_$counter";
-            $blast_data_out{$unique_id}{"start"}=$fields[1];
-            $blast_data_out{$unique_id}{"end"}=$fields[2];
-            $blast_data_out{$unique_id}{"strand"}=$fields[3];
-            $counter++;
-        }
-        else{
-            $newmatch_toggle=0;
-            delete $blast_data_out{$keytodelete};
-            next;
-        }
+        my $unique_id="$fields[0]\_counter\_$counter";
+        $blast_data_in{$unique_id}{"start"}=$fields[1];
+        $blast_data_in{$unique_id}{"end"}=$fields[2];
+        $blast_data_in{$unique_id}{"strand"}=$fields[3];
+        $counter++;
     }
+
+    my($dataref)=RECURSIVE_OVERLAP(\%blast_data_in);
+    my(%blast_data_out)=%{$dataref};
 
     #print data to file for debugging
     my @lines;
@@ -277,16 +205,107 @@ sub PARSE_BLAST {
     return(\%blast_data_out);
 }
 
+sub RECURSIVE_OVERLAP {
+    #recursively look for overlap between matches until only non-overalpping matches remain
+    #return final matches as hash
+    my(%indata)=%{my $ref = shift};
+    my %omatches;
+    my %outdata;
+
+    #start
+    foreach my $keyq (keys %indata){
+        #skip matches that have already been found to have overlap
+        next if(exists $omatches{$keyq});
+        #get generic key (without counter)
+        my($gkeyq)=($keyq=~/(.*?)\_counter\_/);
+        my @unsorted;
+        
+        foreach my $keyr (keys %indata){
+            #check if attempting a self v self comparison
+            next if($keyr eq $keyq);
+
+            #skip matches that have already been found to have overlap
+            next if(exists $omatches{$keyr});
+
+            #check if generic key matches current genome/match
+            my($gkeyr)=($keyr=~/(.*?)\_counter\_/);
+            next if($gkeyr ne $gkeyq);
+
+            #get a range for the new and old match being compared
+            my @rrange;
+            my $overlap_toggle=0;
+            if(exists $outdata{$keyr}){
+                @rrange=($outdata{$keyr}{"start"}..$outdata{$keyr}{"end"});
+            }
+            else{
+                @rrange=($indata{$keyr}{"start"}..$indata{$keyr}{"end"});
+            }
+            @rrange = sort { $a <=> $b } @rrange;
+
+            my @qrange=($indata{$keyq}{"start"}..$indata{$keyq}{"end"});
+            @qrange = sort { $a <=> $b } @qrange; 
+            
+            #check if there is overlap between the ranges            
+            foreach my $i (sort @qrange){
+                foreach my $j (sort @rrange){
+                    if($i==$j){
+                        #debug
+                        #print "I:$i J:$j\n";
+                        $overlap_toggle=1;
+                        $omatches{$keyr}=1;
+                        last;
+                    }
+                    else{
+                        next;
+                    }
+                }
+                if($overlap_toggle==1){
+                    push(@unsorted,shift(@qrange),pop(@qrange),shift(@rrange),pop(@rrange));
+                    last;
+                }
+                else{
+                    next;
+                }
+            }
+            if($overlap_toggle==1){
+                last;
+            }
+        }
+
+        #if overlapping matches were found, get max bounds
+        if(@unsorted){
+            my @sorted = sort { $a <=> $b } @unsorted;
+            my $start=shift(@sorted);
+            my $end=pop(@sorted);
+
+            #populate outdata with condensed match    
+            $outdata{$keyq}{"start"}=$start;
+            $outdata{$keyq}{"end"}=$end;
+            $outdata{$keyq}{"strand"}=$indata{$keyq}{"strand"};
+        }
+        else{
+            #need a mechanism to remove this key if you later find a match to it... probably needs to be in a separate hash?
+            $outdata{$keyq}{"start"}=$indata{$keyq}{"start"};
+            $outdata{$keyq}{"end"}=$indata{$keyq}{"end"};
+            $outdata{$keyq}{"strand"}=$indata{$keyq}{"strand"};
+        }
+    }
+
+    #debug
+    my @lines;
+    foreach my $seqkey (keys %outdata){
+        my $printline = "$seqkey\t$outdata{$seqkey}{'start'}\t$outdata{$seqkey}{'end'}\t$outdata{$seqkey}{'strand'}";
+        push(@lines,$printline);
+    }
+    WRITE_LINES("debug.txt",@lines);
+
+    return(\%outdata);
+}
+
+
 sub FIND_OVERLAP_MATCHES {
     #inputs - filtered match tables from HEN and splice searches
     #outputs - table of matches (using splice bounds) where HEN match was within splice match
-
-    #TODO: Add filter that removes matches that are contained within other matches.
-    #probably need to rethink this whole subroutine. 
-    #Might need to rework the parse BLAST section as well...
-    #maybe have it combine hits with partial overlaps?
-    #prob not a bad idea!
-
 
     my(%hen_blastin)=%{my $ref1=shift};
     my(%splice_blastin)=%{my $ref2=shift};
